@@ -31,6 +31,7 @@ import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import com.termux.R;
+import com.neoterm.input.NeoTermInputController;
 import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.packages.PermissionUtils;
@@ -85,6 +86,9 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
      * The {@link TerminalView} shown in  {@link TermuxActivity} that displays the terminal.
      */
     TerminalView mTerminalView;
+
+    // NeoTerm owns only the local composition UI, never the PTY cursor.
+    private NeoTermInputController mNeoTermInput;
 
     /**
      *  The {@link TerminalViewClient} interface implementation to allow for communication between
@@ -229,6 +233,7 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
         setTermuxTerminalViewAndClients();
 
         setTerminalToolbarView(savedInstanceState);
+        mNeoTermInput = new NeoTermInputController(this);
 
         setSettingsButtonView();
 
@@ -337,7 +342,7 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
     @Override
     public void onSaveInstanceState(@NonNull Bundle savedInstanceState) {
         super.onSaveInstanceState(savedInstanceState);
-        saveTerminalToolbarTextInput(savedInstanceState);
+        // NeoTerm drafts are deliberately never saved.
     }
 
 
@@ -769,8 +774,18 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
         return (ViewPager) findViewById(R.id.terminal_toolbar_view_pager);
     }
 
+    public void onNeoTermSessionChanged(TerminalSession session) {
+        if (mNeoTermInput != null) mNeoTermInput.onSessionChanged(session);
+    }
+
+    /** NeoTerm: target the active editor during keyboard lifecycle and delayed callbacks. */
+    public View getTerminalInputView() {
+        return mNeoTermInput == null ? mTerminalView : mNeoTermInput.inputView();
+    }
+
     public boolean isTerminalViewSelected() {
-        return getTerminalToolbarViewPager().getCurrentItem() == 0;
+        return (mNeoTermInput == null || !mNeoTermInput.isComposerFocused())
+            && getTerminalToolbarViewPager().getCurrentItem() == 0;
     }
 
     public boolean isTerminalToolbarTextInputViewSelected() {

@@ -1,0 +1,9 @@
+
+com.neoterm.input.CompositionInstrumentationTest:...................
+com.neoterm.input.NativePtyCompositionInstrumentationTest:..
+
+Time: 46.341
+
+OK (21 tests)
+
+

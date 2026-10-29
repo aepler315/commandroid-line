@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neoterm_auto">AUTO</string>
+    <string name="neoterm_text">TEXT</string>
+    <string name="neoterm_terminal">TERMINAL</string>
+    <string name="neoterm_compose">Compose</string>
+    <string name="neoterm_keys">Keys</string>
+    <string name="neoterm_draft_label">Draft — not sent</string>
+    <string name="neoterm_draft_hint">Write and correct your prompt here. Transmit sends text; Enter submits separately.</string>
+    <string name="neoterm_transmit">Transmit</string>
+    <string name="neoterm_clear">Clear</string>
+    <string name="neoterm_enter">Enter ↵</string>
+    <string name="neoterm_enter_description">Submit terminal input with Enter</string>
+    <string name="neoterm_transmitted">Sent to terminal. Enter is a separate action.</string>
+    <string name="neoterm_empty">Draft is empty.</string>
+    <string name="neoterm_disconnected">No connected running terminal. Draft kept.</string>
+    <string name="neoterm_bracketed_required">Line breaks and tabs need bracketed paste. Enable it in the receiving application, or send one line.</string>
+    <string name="neoterm_unsafe_control">Draft contains terminal control characters. Remove them before transmitting.</string>
+    <string name="neoterm_invalid_unicode">Draft has an incomplete Unicode character. Correct it before transmitting.</string>
+    <string name="neoterm_write_failed">Transmission failed. Draft kept; check the terminal before retrying.</string>
+    <string name="neoterm_unsent_draft">Transmit or clear the draft before terminal Enter.</string>
+    <string name="neoterm_runtime_notice">Android system shell · Linux packages and AI coding CLIs are not bundled yet.</string>
+    <string name="neoterm_runtime_error">NeoTerm storage setup failed</string>
+    <string name="neoterm_runtime_error_body">NeoTerm could not create its private home and temporary directories. Check available storage and reopen the app.</string>
+    <string name="neoterm_unsupported_profile">Unsupported Android profile</string>
+    <string name="neoterm_unsupported_profile_body">This development build runs only in the primary Android user. Secondary users and work profiles are not supported. Open NeoTerm from the primary Android user to continue.</string>
+</resources>

@@ -272,6 +272,7 @@ public class TermuxTerminalSessionClient extends TermuxTerminalSessionClientBase
         if (session == null) return;
 
         if (mActivity.getTerminalView().attachSession(session)) {
+            mActivity.onNeoTermSessionChanged(session);
             // notify about switched session if not already displaying the session
             notifyOfSessionChange();
         }

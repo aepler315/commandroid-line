@@ -1,0 +1,20 @@
+{
+  "source_url": "https://github.com/termux/termux-packages.git",
+  "source_tag": "bootstrap-2025.03.28-r1+apt-android-7",
+  "source_revision": "5a6d1c1eb868795dce83a6c269387b9f82d21805",
+  "package_name": "com.neoterm",
+  "app_namespace": "com.termux",
+  "app_name": "NeoTerm",
+  "data_dir": "/data/data/com.neoterm",
+  "rootfs": "/data/data/com.neoterm/files",
+  "prefix": "/data/data/com.neoterm/files/usr",
+  "home": "/data/data/com.neoterm/files/home",
+  "package_manager": "apt",
+  "architectures": ["aarch64", "arm", "i686", "x86_64"],
+  "ndk_version": "27c",
+  "ndk_revision": "27.2.12479018",
+  "ndk_archive_sha256": "59c2f6dc96743b5daf5d1626684640b20a6bd2b1d85b13156b90333741bad5cc",
+  "java_major": 17,
+  "builder_base": "ubuntu:24.04",
+  "builder_image": "neoterm-package-builder:termux-5a6d1c1e"
+}

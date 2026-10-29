@@ -1,0 +1,10 @@
+{
+  "original_uid": "10067",
+  "neoterm_uid": "10068",
+  "original_sentinel_sha256": "97ec6ac165739c9fc0be12c9a31db67bbef061e242311b70744a827260faceea",
+  "original_package_user_state": "User 0: ceDataInode=115063 installed=true hidden=false suspended=false stopped=true notLaunched=true enabled=0 instant=false virtual=false\n    User 0: \n  User 0:",
+  "verified_after_contrast_update": true,
+  "instrumentation_tests": 20,
+  "instrumentation_result": "OK",
+  "apk_sha256": "682352a32b3ed6aacbf937029e21b95bb272e76c8840a09d648940a5658a0661"
+}

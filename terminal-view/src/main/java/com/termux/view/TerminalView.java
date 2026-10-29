@@ -46,7 +46,8 @@ import com.termux.view.textselection.TextSelectionCursorController;
 public final class TerminalView extends View {
 
     /** Log terminal view key and IME events. */
-    private static boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
+    // NeoTerm: key events/code points can contain passwords, even in direct mode.
+    private static final boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
 
     /** The currently displayed terminal session, whose emulator is {@link #mEmulator}. */
     public TerminalSession mTermSession;
@@ -271,7 +272,7 @@ public final class TerminalView extends View {
      * @param value The boolean value that defines the state.
      */
     public void setIsTerminalViewKeyLoggingEnabled(boolean value) {
-        TERMINAL_VIEW_KEY_LOGGING_ENABLED = value;
+        // NeoTerm: retain the API but never enable input-content logging.
     }
 
 
@@ -285,6 +286,7 @@ public final class TerminalView extends View {
         if (session == mTermSession) return false;
         mTopRow = 0;
 
+        mInputConnectionGeneration++; // NeoTerm: a stale IME must not type into a new session.
         mTermSession = session;
         mEmulator = null;
         mCombiningAccent = 0;
@@ -297,8 +299,23 @@ public final class TerminalView extends View {
         return true;
     }
 
+    /** NeoTerm direct-input ownership gate. */
+    private boolean mInputConnectionEnabled = true;
+    private long mInputConnectionGeneration;
+    private BaseInputConnection mDirectInputConnection;
+
+    public void setInputConnectionEnabled(boolean enabled) {
+        if (mInputConnectionEnabled != enabled) {
+            mInputConnectionEnabled = enabled;
+            mInputConnectionGeneration++;
+            mDirectInputConnection = null;
+        }
+    }
+
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        if (!mInputConnectionEnabled) return null;
+        final long inputGeneration = ++mInputConnectionGeneration;
         // Ensure that inputType is only set if TerminalView is selected view with the keyboard and
         // an alternate view is not selected, like an EditText. This is necessary if an activity is
         // initially started with the alternate view or if activity is returned to from another app
@@ -332,10 +349,25 @@ public final class TerminalView extends View {
         // keyboard on Android TV (see https://github.com/termux/termux-app/issues/221).
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
 
-        return new BaseInputConnection(this, true) {
+        mDirectInputConnection = new BaseInputConnection(this, true) {
+            private boolean isCurrent() {
+                return mInputConnectionEnabled && inputGeneration == mInputConnectionGeneration;
+            }
+
+            @Override
+            public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                return isCurrent() && super.setComposingText(text, newCursorPosition);
+            }
+
+            @Override
+            public boolean sendKeyEvent(KeyEvent event) {
+                return isCurrent() && super.sendKeyEvent(event);
+            }
+
 
             @Override
             public boolean finishComposingText() {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) mClient.logInfo(LOG_TAG, "IME: finishComposingText()");
                 super.finishComposingText();
 
@@ -346,6 +378,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: commitText(\"" + text + "\", " + newCursorPosition + ")");
                 }
@@ -361,6 +394,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: deleteSurroundingText(" + leftLength + ", " + rightLength + ")");
                 }
@@ -427,6 +461,7 @@ public final class TerminalView extends View {
             }
 
         };
+        return mDirectInputConnection;
     }
 
     @Override
@@ -630,6 +665,30 @@ public final class TerminalView extends View {
     public boolean onKeyPreIme(int keyCode, KeyEvent event) {
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyPreIme(keyCode=" + keyCode + ", event=" + event + ")");
+        // NeoTerm: a physical Enter in direct input explicitly finalizes and submits.
+        // Do this before the IME can consume Enter just to accept its composing word.
+        // The separate paragraph editor never passes through this path.
+        if (mInputConnectionEnabled && event.isFromSource(InputDevice.SOURCE_KEYBOARD)
+            && (event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) == 0
+            && !event.isCtrlPressed() && !event.isAltPressed() && !event.isShiftPressed() && !event.isMetaPressed()
+            && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                BaseInputConnection connection = mDirectInputConnection;
+                if (connection != null && connection.getEditable().length() > 0) {
+                    connection.finishComposingText();
+                    // Late callbacks must not replay text that this explicit Enter sent.
+                    mInputConnectionGeneration++;
+                    mDirectInputConnection = null;
+                    android.view.inputmethod.InputMethodManager imm =
+                        (android.view.inputmethod.InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.restartInput(this);
+                }
+                return onKeyDown(keyCode, event);
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                onKeyUp(keyCode, event);
+                return true;
+            }
+        }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             cancelRequestAutoFill();
             if (isSelectingText()) {
