@@ -1,4 +1,10 @@
-# NeoTerm Milestone 1 verification
+# Archived NeoTerm Milestone 1 verification
+
+Historical record for the earlier `com.termux` prototype and its original APKs.
+The commands, counts, signatures, hashes and limitations below describe that
+source revision only. They do not verify the current `com.neoterm` system-shell
+build. Current evidence is recorded in
+[STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md).
 
 Verified 2026-10-29. Product source commit: `52fc787834206adfedf2904e66f17267d2831706` on
 `feature/neoterm-input-engine`. Subsequent documentation commits do not alter the

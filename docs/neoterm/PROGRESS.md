@@ -1,4 +1,9 @@
-# Execution ledger
+# Archived Milestone 1 execution ledger
+
+Historical input-milestone record. Current standalone work is tracked in
+[STANDALONE-PROGRESS.md](STANDALONE-PROGRESS.md), with current verification in
+[STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md).
+
 Plan: docs/superpowers/plans/2026-10-29-neoterm-input.md
 - Baseline: stable v0.118.3; clean new clone, isolated from unrelated project.
 - Pre-flight: engine Draft interface consumed by Android editor; TerminalTarget

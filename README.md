@@ -1,8 +1,9 @@
-# NeoTerm — Android terminal input milestone
+# NeoTerm — standalone Android terminal
 
 Independent development fork of official Termux v0.118.3. NeoTerm stages a full
 paragraph in a native Android editor for correction before explicit transmission.
-This is a development milestone, not an official Termux update.
+The current development build uses its own Android package, `com.neoterm`, and
+stages terminal input without sending speculative edits to the running program.
 
 Choose **TEXT**, write/correct in the **Draft — not sent** editor, tap **Transmit**,
 then use **Enter ↵** separately to submit. **AUTO** keeps exact direct input until
@@ -10,17 +11,33 @@ you tap **Compose**. **TERMINAL** preserves the upstream keyboard path. Line bre
 and tabs require bracketed-paste support in the receiving application.
 
 See [architecture](docs/neoterm/ARCHITECTURE.md), [build](docs/neoterm/BUILD.md),
-[verification](docs/neoterm/VERIFICATION.md), [IME tests](docs/neoterm/TESTING.md),
-[independent-package plan](docs/neoterm/MIGRATION.md), [roadmap and risks](docs/neoterm/ROADMAP.md),
+[standalone verification](docs/neoterm/STANDALONE-VERIFICATION.md), [IME tests](docs/neoterm/TESTING.md),
+[package migration](docs/neoterm/MIGRATION.md), [bootstrap build preparation](docs/neoterm/BOOTSTRAP-BUILD.md),
+[roadmap and risks](docs/neoterm/ROADMAP.md),
 and [changelog](CHANGELOG.md).
 
-**Compatibility:** this milestone retains `com.termux` and the upstream Linux
-prefix/bootstrap. It cannot install alongside official Termux. Use a disposable
-test device; physical Gboard/Samsung and agent acceptance remains pending.
+**Runtime:** NeoTerm starts Android's `/system/bin/sh` with private home and
+temporary directories. It has a separate package, providers, permissions and UID
+declaration for installation alongside Termux; actual device coexistence remains
+pending verification. Debug builds use Android's locally generated debug key.
+No upstream Termux bootstrap is bundled or installed. `pkg`/apt, bash, Python,
+Node, SSH and AI coding CLIs are unavailable until compatible packages are built
+and validated. The system shell runs with ordinary Android application privileges.
+Startup supports the primary Android system user only; secondary users and work
+profiles are blocked while shared upstream paths retain primary-user assumptions.
+
+Current standalone test/build/install evidence belongs in the standalone ledger
+linked above. [Milestone 1 verification](docs/neoterm/VERIFICATION.md) is archived
+evidence for the earlier `com.termux` input prototype and its APKs.
 Drafts are memory-only and are discarded on session changes or activity recreation.
 Use TERMINAL for passwords. No NeoTerm input text is logged.
 
-The upstream README and attribution follow, preserved for reference.
+The upstream README and attribution follow as historical reference. Its Termux
+download, package-management and uninstallation instructions apply to upstream
+Termux. NeoTerm's current build instructions are in [BUILD.md](docs/neoterm/BUILD.md).
+
+<details>
+<summary>Archived upstream Termux README</summary>
 
 ---
 
@@ -280,3 +297,5 @@ The `versionName` in `build.gradle` files of Termux and its plugin apps must fol
 - You also need to recompile bootstrap zip for the new package name. Check [here](https://github.com/termux/termux-app/issues/1983) and [here](https://github.com/termux/termux-app/issues/2081#issuecomment-865280111) for experimental work on it.
 - Currently, not all plugins use `TermuxConstants` from `termux-shared` library and have hardcoded `com.termux` values and will need to be manually patched.
 - If forking termux plugins, check [Forking and Local Development](https://github.com/termux/termux-app/wiki/Termux-Libraries#forking-and-local-development) for info on how to use termux libraries for plugins.
+
+</details>

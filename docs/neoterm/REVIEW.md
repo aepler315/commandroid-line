@@ -1,4 +1,8 @@
-# Milestone 1 review
+# Archived Milestone 1 review
+
+This review covers the historical input milestone, not the current standalone
+identity/runtime changes. See [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md)
+for current verification status.
 
 An independent read-only review examined stable upstream
 5b657c6adf4304e5198951ce815fe0205dcac29c through implementation commit

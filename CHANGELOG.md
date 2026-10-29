@@ -1,6 +1,27 @@
 # NeoTerm changelog
 
-## 0.118.3-neoterm.m1 — development milestone (2026-10-29)
+## 0.118.3-neoterm.standalone1 — development work (2026-10-29)
+
+- Changed Android application ID to `com.neoterm` and application label to NeoTerm.
+- Removed the shared UID declaration; isolated authorities, permissions, actions,
+  shortcuts, preferences and private data paths from the upstream package.
+- Kept the `com.termux` Java/resource namespace and PTY JNI symbols, with component
+  class names independent of the installed application ID.
+- Switched debug signing to Android's generated local debug key; release signing
+  remains unconfigured. Updates to a development installation require the same key.
+- Replaced first-run bootstrap extraction with creation of private home/tmp
+  directories and Android system-shell execution. Added a visible runtime notice.
+- Removed incompatible upstream bootstrap download/embedding from the app build;
+  retained the terminal-emulator PTY library and historical bootstrap C sources.
+- Added standalone identity, startup and shell-environment regression tests.
+- Added source preparation and validation tooling for future custom-prefix
+  bootstraps; no completed Linux bootstrap or package repository is included.
+
+This runtime has no apt/pkg, Python, Node, SSH or AI coding CLI support. Current
+verification is recorded separately in `docs/neoterm/STANDALONE-VERIFICATION.md`;
+device coexistence and real keyboard acceptance require execution evidence.
+
+## 0.118.3-neoterm.m1 — archived development milestone (2026-10-29)
 
 Based on official Termux v0.118.3, commit 5b657c6adf4304e5198951ce815fe0205dcac29c.
 Independently developed GPL-3.0-only changes; existing upstream notices preserved.

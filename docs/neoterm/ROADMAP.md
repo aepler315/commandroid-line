@@ -1,12 +1,18 @@
 # NeoTerm roadmap and outstanding risks
 
-## Milestone 1: explicit local composition
+## Implemented development scope
 Native IME draft, pure Kotlin lifecycle, explicit transmission and separate Enter,
-conservative AUTO, preserved direct key pipeline, tests and compatible debug build.
-A compiled milestone is not production Gboard/Samsung certification.
+conservative AUTO and preserved direct key pipeline originated in Milestone 1.
+The current branch adds `com.neoterm`, no shared UID, local debug signing, isolated
+data/contracts and Android system-shell startup without an upstream bootstrap.
+See [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md) for current evidence;
+the old M1 test/build record is archived. Production Gboard/Samsung certification
+and actual device coexistence remain acceptance work.
 
 ## Next priorities
-1. Run the real IME/device/agent acceptance matrix in TESTING.md. Add regression
+1. Run the standalone installation, live PTY and real IME matrix in TESTING.md.
+   Confirm coexistence with official Termux without modifying its package/data.
+   Agent acceptance follows availability of a compatible Linux runtime. Add regression
    fixtures for every vendor discrepancy. Test session switches, app backgrounding,
    restarts, hardware modifiers and keyboard layout changes under load.
 2. Add a trustworthy shell/agent integration protocol for explicit natural-language,
@@ -20,8 +26,11 @@ A compiled milestone is not production Gboard/Samsung certification.
 4. Evaluate terminal queue backpressure and acknowledged transmission UX. Current
    TerminalSession.write is a queue handoff, not an app acknowledgment; avoid auto
    retry/exactly-once claims and assess large-paste blocking of the main thread.
-5. Execute the independent-package migration in MIGRATION.md, establish release
-   signing/source availability and an upstream security patch process.
+5. Build and validate the custom-prefix Linux runtime described in MIGRATION.md
+   and BOOTSTRAP-BUILD.md. Source preparation tooling is present; complete bootstrap
+   builds, a signed package repository and AI CLI dependency closures are pending.
+   Establish protected release signing/source availability and an upstream security
+   patch process before production distribution.
 
 ## Technical risks and present limits
 - No arbitrary-app detection or termios ECHO/password detector is implemented.
@@ -45,5 +54,13 @@ A compiled milestone is not production Gboard/Samsung certification.
 - Stable upstream uses old Android target/API assumptions and dependencies. Tooling
   updates do not resolve modern background execution, distribution policy, storage
   or security-maintenance obligations. Plan these separately from input changes.
-- Current com.termux identity/public debug signing cannot coexist with an official
-  installation. Independent identity requires rebuilt prefix/package ecosystem.
+- Package metadata now isolates NeoTerm from official Termux. Real-device separate
+  UID/data, install/upgrade behavior and component resolution still need evidence.
+- Shared upstream paths still assume the primary Android user. Startup blocks
+  secondary users/work profiles before initialization; supporting them requires a
+  complete context-derived path migration and profile-specific device tests.
+- The Android system shell offers only platform commands allowed to an app UID.
+  There is no package manager, Python, Node, SSH or agent runtime. Official Termux
+  packages must never be installed or copied into the new prefix as a shortcut.
+- Local debug keys differ across build machines; developer updates require the
+  same key. Protected production signing and an upgrade policy are still pending.

@@ -1,11 +1,44 @@
-# NeoTerm Milestone 1 design
+# NeoTerm standalone architecture
 
 ## Objective and constraints
 Compose and correct a full prompt with a familiar Android IME before sending it
-to a terminal agent. Keep all speculative text outside the PTY. Preserve Termux's
-emulator, Linux execution environment, package identity and direct input path.
-No screen-text app detector, new keyboard, speculative terminal backspaces,
-production signing change, or independently installable package in this milestone.
+to a running terminal program. Keep all speculative text outside the PTY. Preserve
+Termux's emulator, PTY JNI and direct input path while giving NeoTerm an independent
+Android identity and system-shell runtime. Agent use remains a future acceptance
+target because compatible Linux packages are not yet available.
+
+## Android identity and runtime
+The installed application ID is `com.neoterm`; the source/resource namespace stays
+`com.termux` so upstream component classes and JNI symbols remain valid. A separate
+Java namespace constant supplies component class names. Package-derived actions,
+permissions, provider authorities, shortcuts and preferences use `com.neoterm`.
+The manifest declares no shared UID. Debug builds use Android's local generated
+debug key; release signing is not configured.
+
+`com.neoterm.runtime.AndroidShellEnvironment` derives HOME/PREFIX/TMPDIR from
+`Context.filesDir`. On the primary user these correspond to
+`/data/data/com.neoterm/files/home`, `files/usr` and `files/usr/tmp`; Android may
+return the equivalent `/data/user/0/com.neoterm/files` path. Startup creates only
+private directories. The reserved PREFIX contains no Linux package environment.
+Both foreground sessions and background tasks use this environment client.
+
+The shell is Android's `/system/bin/sh` with a fixed system PATH and selected
+Android runtime variables. Loader injection and arbitrary inherited shell settings
+are excluded. Plain scripts use the system shell; declared shebangs are preserved.
+The app never extracts official `com.termux`-prefix packages. Its old bootstrap
+native build/download pipeline is disabled; terminal-emulator still supplies PTY
+JNI. See [MIGRATION.md](MIGRATION.md) for the remaining package work.
+
+Startup supports the primary Android system user only. It checks identity before
+creating runtime directories and fails closed for secondary/work profiles or an
+unavailable user identity. This keeps static primary-user paths in shared upstream
+code from resolving to another profile's directories. Profile support needs a
+broader context-derived path migration and device acceptance.
+
+The system shell has ordinary application UID/SELinux permissions. It supplies
+neither adb-shell privileges nor apt/pkg, bash, Python, Node, SSH or AI coding CLIs.
+The input panel displays this runtime limit. Device coexistence, supported Android
+versions and real PTY behavior still require the tests in [TESTING.md](TESTING.md).
 
 ## Inspected upstream flow
 - terminal-view/.../TerminalView.java onCreateInputConnection creates a

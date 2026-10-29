@@ -1,44 +1,63 @@
-# Plan for an independently installable NeoTerm
+# Standalone identity and Linux runtime migration
 
-Milestone 1 intentionally retains com.termux and /data/data/com.termux/files/usr.
-Changing applicationId alone is not a valid migration. Current APKs are development
-builds and do not provide side-by-side compatibility with Termux.
+The current source implements an independently packaged Android system-shell
+NeoTerm. Linux packages and AI coding CLIs remain pending. Earlier M1 APKs used
+`com.termux`; their verification is [archived](VERIFICATION.md). Current test,
+APK and device evidence belongs in [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md).
 
-## Evidence inspected 2026-10-29
-- Stable TermuxConstants.java (lines around 223–250 and 534–548) documents hardcoded
-  prefixes, matching applicationId and bootstrap rebuild requirements:
-  https://github.com/termux/termux-app/blob/v0.118.3/termux-shared/src/main/java/com/termux/shared/termux/TermuxConstants.java
-- Stable AndroidManifest.xml uses package-derived sharedUserId, component and
-  permission names; TermuxAppSharedPreferences validates app identity.
-- app/build.gradle pins four bootstraps; termux-bootstrap-zip.S embeds the ABI zip.
-- Current termux-packages scripts/properties.sh exposes TERMUX_APP__PACKAGE_NAME,
-  TERMUX__ROOTFS and TERMUX__PREFIX (older aliases TERMUX_APP_PACKAGE, TERMUX_PREFIX):
-  https://github.com/termux/termux-packages/blob/master/scripts/properties.sh
-  Pin a specific packages revision when executing migration; master was research,
-  not a build dependency. Package-name/path-length constraints also apply.
+## Implemented in source
 
-## Concrete migration sequence
-
-| Area | Required work | Acceptance evidence |
+| Area | Current behavior | Remaining acceptance |
 | --- | --- | --- |
-| Package identity | Reserve a short distinct ID; update Gradle applicationId, constants, manifest placeholders, providers, permissions, intents, shortcuts, resources and integration clients together. Audit every hardcoded com.termux path/name. | Fresh install with Termux present, separate UID/data, all components resolve correctly. |
-| Linux prefix | Choose /data/data/NEW_ID/files/usr and home paths; rebuild toolchain/packages with that prefix. Audit shebangs, ELF RUNPATH, scripts, symlinks, pkg-config, Python/node modules and executable wrappers. Do not symlink to another app's private directory. | ELF/script scan and execution tests contain no unintended old prefix. |
-| Bootstrap distribution | Pin compatible termux-packages revision; generate bootstraps for arm64, armv7, x86 and x86_64 using the new identity/prefix. Host immutable signed/checksummed releases and configure download/embed paths. | Offline clean-device bootstrap and package upgrade tests for all supported ABIs. |
-| Native libraries | Keep Java namespace separate from applicationId where possible. Audit JNI symbols, library loading, exec/environment paths and Android linker behavior; rebuild JNI/bootstrap libraries. | PTY spawn, signals, UTF-8, exec and child process tests on each ABI. |
-| App signing | Create protected production signing key with backup/recovery and documented ownership. Use stable signing across updates. Do not ship the upstream public debug key. Review/remove shared UID design before release. | Upgrade signature/rollback policy tested; plugins signed and authorized as required. |
-| Packages/repositories | Publish a rebuilt, signed apt repository using new-prefix packages. Upstream .deb binaries are not assumed relocatable. Select/audit rebuild set including bash, apt, coreutils, Python, node and agent dependencies. | apt install/upgrade, pip/npm tools, agents and dependency closure run without old paths. |
-| Storage/permissions | Separate HOME/PREFIX and shared-storage links. Audit scoped storage, SAF import/export, executability restrictions, background/foreground services, notifications and target-SDK changes independently. | Supported Android API matrix; no access to Termux's private data or inherited permission assumptions. |
-| Updates/migrations | Version both Android app and bootstrap/repository schema. Reinstall packages into new prefix; import only explicitly selected user files/config with preview and backup. Absolute paths and virtualenvs need reconstruction. | Transactional import, dry run/report, interruption recovery and no automatic old-app deletion. |
+| Android identity | Application ID `com.neoterm`, NeoTerm app label, no shared UID declaration. | Install with official Termux present; check distinct UID/data and independent upgrades. |
+| Components and contracts | Java/resource namespace `com.termux` and JNI symbols retained. Component class constants use a separate Java namespace. Shortcuts target `com.neoterm`; authorities, permission, actions, extras and preferences use the new identity. | Inspect built manifest/resources; exercise launcher, settings, shortcuts, services and providers. |
+| Private paths | Runtime derives HOME/PREFIX/tmp from `Context.filesDir`; shared constants use `/data/data/com.neoterm/files`. Startup blocks secondary/work profiles or unavailable user identity before initialization. | Validate primary-user aliases and storage/SAF behavior; broader path migration is required before profile support. |
+| Shell startup | Creates private directories and starts Android `/system/bin/sh`; foreground and background execution use a dedicated environment client. | Live PTY spawn, commands, signals, resize, UTF-8, restart and process-exit checks on supported devices. |
+| Bootstrap | Official-prefix bootstrap download/embedding and extraction are removed. Historical C/assembly sources are retained unused; terminal-emulator PTY JNI remains active. | Inspect APK contents and clean first-launch behavior; confirm no old prefix is accessed. |
+| Signing | Android's generated local debug key replaces the public upstream debug key. Release signing remains unconfigured. | Developer upgrade with the same key; protected production signing and recovery policy. |
 
-## Shipping gates
-1. Complete the identity/prefix inventory and pin source/toolchain/license manifests.
-2. Build new-prefix bootstrap and minimal repository in CI; validate on clean devices.
-3. Run side-by-side and upgrade suites, including plugins and Android shared-UID
-   limitations. Document which Termux add-ons are incompatible or need forks.
-4. Provide user-controlled archive export/import (old app cannot be read directly
-   under Android sandboxing), checksums, ownership/permissions and symlink defenses.
-   Never copy the old PREFIX wholesale as the migration strategy.
-5. Establish signing, release-source publication, security/upstream update cadence,
-   mirror ownership and rollback before changing the production package identity.
+The runtime has ordinary Android application privileges. It supplies platform
+shell commands, not adb-shell access or a Linux distribution. There is no apt/pkg,
+bash, Python, Node, SSH or AI coding CLI environment. Upstream plugins rely on
+their original package/signature/shared-UID contracts and are not supported as
+NeoTerm add-ons by this migration.
 
-No identity/prefix/signing migration has been executed in this milestone.
+## Remaining Linux runtime work
+
+[BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md) documents pinned source preparation and
+static validation tooling for the real prefix `/data/data/com.neoterm/files/usr`.
+No completed compatible bootstrap or signed NeoTerm package repository is included.
+Preparing source or passing static checks does not prove execution on Android.
+
+1. Build compatible toolchain/package dependency closures from source for each
+   distributed ABI. Keep `TERMUX_APP__NAMESPACE=com.termux` to match Java classes.
+   Audit shebangs, ELF interpreter/RUNPATH, scripts, symlinks, pkg-config and Python/
+   Node modules for old paths. Official Termux binaries are not relocatable inputs.
+2. Validate real bootstrap archives and second-stage installation on clean devices,
+   with official Termux still installed. Record exact source/configuration, build
+   logs, component licenses, checksums and architecture coverage.
+3. Publish a rebuilt signed package repository before advertising apt/pkg install
+   or upgrades. Keep official mirrors disabled. Validate bash, core utilities,
+   Python, Node, SSH and agent dependencies as explicit package sets.
+4. Integrate verified archives into app startup with immutable checksums, runtime
+   schema/versioning, failure recovery and per-ABI evidence. An unavailable ABI
+   must never fall back to an upstream-prefix archive.
+5. Test actual Claude Code, Codex CLI and Gemini CLI versions before claiming agent
+   support, including their Android/runtime dependencies and the IME matrix.
+
+A source-built proot plus a separately verified Linux rootfs is an alternative
+future route, with its own packaging, storage, performance and device validation.
+It is not part of the current system-shell build.
+
+## User data and release work
+
+NeoTerm never reads another application's private directory or automatically
+copies/deletes an old installation. A future importer must be user initiated,
+preview selected files, preserve a backup, and defend against archive path and
+symlink escapes. Recreate packages, virtualenvs and absolute-path configurations
+for the new prefix; never import the old PREFIX wholesale.
+
+Before production distribution, establish a protected signing key with backup and
+ownership, update/rollback policy, corresponding-source publication, upstream
+security maintenance, and supported Android/API/vendor coverage. Modern storage,
+background-service and target-SDK changes need their own acceptance tests.
