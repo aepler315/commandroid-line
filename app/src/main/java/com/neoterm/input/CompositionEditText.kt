@@ -4,12 +4,15 @@ package com.neoterm.input
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
+import android.os.Bundle
 import android.text.InputType
 import android.text.Selection
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.CompletionInfo
+import android.view.inputmethod.CorrectionInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
@@ -21,10 +24,15 @@ import kotlin.math.min
 // TermuxActivity is a platform Activity, so use its native widget/theme contract.
 @SuppressLint("AppCompatCustomView")
 class CompositionEditText @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : EditText(context, attrs) {
+    private var finishActiveBatches: (() -> Unit)? = null
+
     val engine = InputEngine(object : Draft {
         override val text: String get() = this@CompositionEditText.text.toString()
         override val composing: Boolean get() = BaseInputConnection.getComposingSpanStart(this@CompositionEditText.text) >= 0
-        override fun finishComposition() { BaseInputConnection.removeComposingSpans(this@CompositionEditText.text) }
+        override fun finishComposition() {
+            finishActiveBatches?.invoke()
+            BaseInputConnection.removeComposingSpans(this@CompositionEditText.text)
+        }
         override fun clear() {
             finishComposition()
             this@CompositionEditText.text.clear()
@@ -47,11 +55,21 @@ class CompositionEditText @JvmOverloads constructor(context: Context, attrs: Att
     }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        finishActiveBatches?.invoke()
         if (!engine.isComposing) return null
         val delegate = super.onCreateInputConnection(outAttrs) ?: return null
         val connection = engine.newConnection()
         return object : InputConnectionWrapper(delegate, false) {
-            private fun edit(operation: () -> Boolean) = engine.applyImeEdit(connection, operation)
+            private var ownedBatches = 0
+            private var closed = false
+            private fun edit(operation: () -> Boolean) = !closed && engine.applyImeEdit(connection, operation)
+            private fun drainBatches() {
+                while (ownedBatches > 0) {
+                    super.endBatchEdit()
+                    ownedBatches--
+                }
+            }
+            init { finishActiveBatches = { drainBatches() } }
 
             // Preserve Android's cursor-position contract even on older EditableInputConnection
             // implementations whose POINT selection spans move to the end of an insertion.
@@ -97,12 +115,29 @@ class CompositionEditText @JvmOverloads constructor(context: Context, attrs: Att
                 if (beforeLength < 0 || afterLength < 0) false
                 else super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
             }
-            override fun beginBatchEdit() = edit { super.beginBatchEdit() }
-            override fun endBatchEdit() = edit { super.endBatchEdit() }
+            override fun beginBatchEdit() = edit {
+                super.beginBatchEdit().also { if (it) ownedBatches++ }
+            }
+            // Cleanup may outlive the generation, but must balance only this connection's batches.
+            override fun endBatchEdit(): Boolean {
+                if (ownedBatches == 0) return false
+                ownedBatches--
+                return super.endBatchEdit()
+            }
+            override fun performContextMenuAction(id: Int) = edit { super.performContextMenuAction(id) }
+            override fun commitCompletion(value: CompletionInfo?) = edit { super.commitCompletion(value) }
+            override fun commitCorrection(value: CorrectionInfo?) = edit { super.commitCorrection(value) }
+            override fun clearMetaKeyStates(states: Int) = edit { super.clearMetaKeyStates(states) }
+            override fun performPrivateCommand(action: String?, data: Bundle?) = edit { super.performPrivateCommand(action, data) }
             override fun sendKeyEvent(event: KeyEvent) = edit { super.sendKeyEvent(event) }
             // Suggestion action buttons may finish local composition; never submit to PTY.
             override fun performEditorAction(actionCode: Int) = edit { super.finishComposingText(); true }
-            override fun closeConnection() { edit { super.closeConnection(); true } }
+            override fun closeConnection() {
+                drainBatches()
+                // A stale delegate close would remove the fresh connection's composing spans.
+                edit { super.closeConnection(); true }
+                closed = true
+            }
         }
     }
 

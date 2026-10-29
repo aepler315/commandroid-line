@@ -35,7 +35,10 @@ terminal owns input. A short TRANSMITTING state prevents reentrant send.
 All callbacks run on the main thread. InputConnectionWrapper delegates Android
 operations through the engine gate. Connection generations reject callbacks after
 mode changes, session changes, new connections or transmission; restartInput
-refreshes the IME. finishComposingText finalizes only local spans. commitText
+refreshes the IME. Native batch cleanup is tracked per connection and can outlive
+invalidation without mutating a new composition. Context-menu and other mutating
+callbacks use the same generation gate. Activity resume and delayed keyboard
+requests target the active editor. finishComposingText finalizes only local spans. commitText
 means local committed text, never terminal transmission or submission.
 
 AUTO is default. With no trustworthy application protocol it stays direct; tapping

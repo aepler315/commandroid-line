@@ -778,6 +778,11 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
         if (mNeoTermInput != null) mNeoTermInput.onSessionChanged(session);
     }
 
+    /** NeoTerm: target the active editor during keyboard lifecycle and delayed callbacks. */
+    public View getTerminalInputView() {
+        return mNeoTermInput == null ? mTerminalView : mNeoTermInput.inputView();
+    }
+
     public boolean isTerminalViewSelected() {
         return (mNeoTermInput == null || !mNeoTermInput.isComposerFocused())
             && getTerminalToolbarViewPager().getCurrentItem() == 0;

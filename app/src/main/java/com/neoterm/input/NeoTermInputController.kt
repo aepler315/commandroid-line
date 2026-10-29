@@ -2,6 +2,8 @@
 package com.neoterm.input
 
 import android.content.Context
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -21,6 +23,13 @@ class NeoTermInputController(private val activity: TermuxActivity) {
     private val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
 
     init {
+        editor.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                status.setText(R.string.neoterm_draft_label)
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
         modes.setOnCheckedChangeListener { _, id ->
             editor.engine.setMode(when (id) {
                 R.id.neoterm_mode_text -> InputMode.TEXT
@@ -54,6 +63,8 @@ class NeoTermInputController(private val activity: TermuxActivity) {
         render(false)
         imm.restartInput(editor)
     }
+
+    fun inputView(): View = if (editor.engine.isComposing) editor else activity.terminalView
 
     fun isComposerFocused(): Boolean = editor.hasFocus() && editor.engine.isComposing
 

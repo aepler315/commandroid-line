@@ -28,3 +28,22 @@ Plan: docs/superpowers/plans/2026-10-29-neoterm-input.md
   no execution behavior changed. Rechecking lint after this whitespace fix.
 - Debug script first rejected JDK 11 when JAVA_TOOL_OPTIONS added a stderr banner
   to javac -version. Adjusted version matching to accept the banner; reran script.
+- Task 2 committed as 8b3bcf64. Pinned debug script passed all 194 JVM tests and
+  built universal debug + instrumentation APKs. Subsequent lint passed (0 errors,
+  45 warnings); connected instrumentation failed exactly "No connected devices!".
+- Whole-branch read-only review dispatched under requesting-code-review skill.
+- Execution environment disconnected before any review-fix command started. On
+  user-requested continuation, confirmed the checkout/toolchains were intact.
+- Review regression rerun: 6 tests, 5 expected failures (batch end/close, stale menu,
+  resume focus, stale sent label). One current-generation paste control passed.
+- Final fixes: drain only each connection's owned native batches on invalidation,
+  preserve fresh composition on stale close, gate context-menu/private/correction
+  operations, route resume/keyboard callbacks to the active editor, and mark new
+  text unsent. Final whole JVM suite GREEN 200/200, zero failures/errors/skips.
+- Activity/queue integration also stages/corrects a full paragraph, transmits once
+  with no Enter, rejects late duplicate commit, and keeps submission separate.
+- Final review ruling: treat the stale sent label as important because unsent text
+  must be distinguishable from terminal input. Fixed with the UI transmission test.
+  No review minors deferred. Physical IMEs, layout/accessibility, end-to-end PTY/
+  agents, grapheme editing, keyboard privacy compliance and independent packaging
+  remain explicit device/release acceptance work, not inferred passes.
