@@ -37,7 +37,10 @@ run on Android's main thread. Prefer Android's standard IME implementation.
 Never log input, passwords, key events or text snapshots. No draft persistence,
 analytics or automatic clipboard copying. User-initiated native editing actions
 remain available. Keep all copyright and license notices.
-Retain `com.termux`, /data/data/com.termux/files/usr and upstream bootstraps in
-Milestone 1. Do not claim side-by-side installation. No publication, deployment,
+The user now requires a separately installable build. Use `com.neoterm` and its
+own HOME/PREFIX. Keep Java/JNI namespaces as com.termux for compatibility. Never
+embed or install com.termux-prefix bootstrap binaries into the NeoTerm sandbox.
+The standalone Android system-shell runtime has no apt/node/AI CLI support until
+custom-prefix packages are built. Do not claim device coexistence without a device test. No publication, deployment,
 remote pushes or PR creation without explicit user authorization. Work on
-feature/neoterm-input-engine; do not overwrite unrelated work.
+feature/neoterm-standalone; do not overwrite unrelated work.
