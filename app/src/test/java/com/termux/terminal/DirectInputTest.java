@@ -2,6 +2,7 @@
 package com.termux.terminal;
 
 import android.view.KeyEvent;
+import android.view.InputDevice;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import com.termux.shared.terminal.TermuxTerminalSessionClientBase;
@@ -46,6 +47,35 @@ public class DirectInputTest {
         byte[] buffer = new byte[4096];
         int n = session.mTerminalToProcessIOQueue.read(buffer, false);
         return new String(buffer, 0, n, StandardCharsets.UTF_8);
+    }
+    @Test public void onePhysicalEnterCommitsPendingDirectTextThenSubmitsOnce() {
+        InputConnection ic = view.onCreateInputConnection(new EditorInfo());
+        ic.setComposingText("pwd", 1);
+        assertEquals("", read());
+        KeyEvent down = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER);
+        KeyEvent up = new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER);
+        down.setSource(InputDevice.SOURCE_KEYBOARD);
+        up.setSource(InputDevice.SOURCE_KEYBOARD);
+        assertTrue(view.onKeyPreIme(KeyEvent.KEYCODE_ENTER, down));
+        assertTrue(view.onKeyPreIme(KeyEvent.KEYCODE_ENTER, up));
+        assertEquals("pwd\r", read());
+        assertFalse("Late IME commit must not replay a submitted command", ic.commitText("pwd", 1));
+        assertEquals("", read());
+    }
+    @Test public void physicalEnterAndKeypadEnterKeepUpstreamLineEnding() {
+        for (int code : new int[]{KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER}) {
+            KeyEvent down = new KeyEvent(KeyEvent.ACTION_DOWN, code);
+            down.setSource(InputDevice.SOURCE_KEYBOARD);
+            assertTrue(view.onKeyPreIme(code, down));
+            assertEquals(code == KeyEvent.KEYCODE_ENTER ? "\r" : "\n", read());
+        }
+    }
+    @Test public void composerOwnershipDoesNotSubmitThroughPhysicalPreImeEnter() {
+        view.setInputConnectionEnabled(false);
+        KeyEvent event = new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER);
+        event.setSource(InputDevice.SOURCE_KEYBOARD);
+        assertFalse(view.onKeyPreIme(KeyEvent.KEYCODE_ENTER, event));
+        assertEquals("", read());
     }
     @Test public void shellCommandsAndFlagsRemainExact() {
         InputConnection ic = view.onCreateInputConnection(new EditorInfo());

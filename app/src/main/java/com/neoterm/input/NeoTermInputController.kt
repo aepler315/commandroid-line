@@ -38,21 +38,30 @@ class NeoTermInputController(private val activity: TermuxActivity) {
             })
             render(true)
         }
+        // Physical-keyboard navigation may focus an already-selected mode button.
+        // Re-selecting it must return typing to the input view even without a mode change.
+        for (id in intArrayOf(R.id.neoterm_mode_auto, R.id.neoterm_mode_text, R.id.neoterm_mode_terminal)) {
+            activity.findViewById<View>(id).setOnClickListener { inputView().requestFocus() }
+        }
         compose.setOnClickListener { editor.engine.openComposer(); render(true) }
         activity.findViewById<View>(R.id.neoterm_keys).setOnClickListener {
             activity.toggleTerminalToolbar()
+            inputView().requestFocus()
         }
         activity.findViewById<View>(R.id.neoterm_transmit).setOnClickListener {
             showResult(editor.engine.transmit(target()))
+            editor.requestFocus()
             imm.restartInput(editor)
         }
         activity.findViewById<View>(R.id.neoterm_clear).setOnClickListener {
             editor.engine.discardDraft()
             status.setText(R.string.neoterm_draft_label)
+            editor.requestFocus()
             imm.restartInput(editor)
         }
         activity.findViewById<View>(R.id.neoterm_enter).setOnClickListener {
             showResult(editor.engine.submit(target()))
+            inputView().requestFocus()
         }
         render(false)
     }

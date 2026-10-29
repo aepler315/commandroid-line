@@ -1,5 +1,22 @@
 # NeoTerm changelog
 
+## 0.118.3-neoterm.standalone2 (2026-10-29)
+
+- Handle unmodified physical Enter before the IME in AUTO/direct and TERMINAL.
+  Finalize any native direct composing buffer before submitting once, then
+  invalidate that connection to reject late replay. TEXT Enter remains local.
+- Add pending-composition, keypad-ending and composer-ownership regressions plus
+  a live Android hardware-event/shell test. 220 JVM and 21 Android tests pass.
+- Provision and verify NDK r27c/JDK17 for the pinned apt bootstrap sources.
+  Full package compilation and an apt repository remain pending.
+
+## standalone1 keyboard-focus follow-up (2026-10-29)
+
+- Return typing focus after input action buttons and reselecting an active mode,
+  including physical-keyboard Tab/DPAD navigation.
+- Added a failing-then-passing focus/letter-editing regression. 217 JVM tests pass;
+  app/test APK builds pass. Physical Bluetooth validation remains pending.
+
 ## 0.118.3-neoterm.standalone1 — development work (2026-10-29)
 
 - Changed Android application ID to `com.neoterm` and application label to NeoTerm.

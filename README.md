@@ -5,6 +5,10 @@ paragraph in a native Android editor for correction before explicit transmission
 The current development build uses its own Android package, `com.neoterm`, and
 stages terminal input without sending speculative edits to the running program.
 
+Latest single-Enter correction and apt bootstrap progress:
+[ENTER-AND-APT.md](docs/neoterm/ENTER-AND-APT.md).
+Earlier physical-keyboard focus patch: [HARDWARE-KEYBOARD.md](docs/neoterm/HARDWARE-KEYBOARD.md).
+
 Choose **TEXT**, write/correct in the **Draft — not sent** editor, tap **Transmit**,
 then use **Enter ↵** separately to submit. **AUTO** keeps exact direct input until
 you tap **Compose**. **TERMINAL** preserves the upstream keyboard path. Line breaks

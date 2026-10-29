@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.os.SystemClock
 import android.view.View
+import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.RadioGroup
@@ -24,6 +25,44 @@ import java.util.concurrent.atomic.AtomicReference
 /** Real activity, controller, JNI PTY, and /system/bin/sh; no agent or vendor IME is simulated. */
 @RunWith(AndroidJUnit4::class)
 class NativePtyCompositionInstrumentationTest {
+    @Test fun autoUsesOnePhysicalEnterForDirectAndPendingImeCommands() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val scenario = ActivityScenario.launch<TermuxActivity>(Intent(context, TermuxActivity::class.java))
+        try {
+            waitUntil("Native shell did not start") {
+                activityValue(scenario) { it.currentSession?.let { s -> s.pid > 0 && s.emulator != null } == true }
+            }
+            activityValue(scenario) {
+                it.findViewById<View>(R.id.neoterm_mode_auto).performClick()
+                assertTrue(it.terminalView.hasFocus())
+            }
+            instrumentation.waitForIdleSync()
+            val shell = activityValue(scenario) { it.currentSession!! }
+            val nonce = UUID.randomUUID().toString().replace("-", "")
+            val direct = "NEOTERM_DIRECT_$nonce"
+            instrumentation.sendStringSync("printf '\\nNEOTERM_DIRECT_%s\\n' '$nonce'")
+            assertFalse(transcript(scenario, shell).contains(direct))
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+            waitUntil("Direct command needed a second physical Enter") { transcript(scenario, shell).contains(direct) }
+            assertEquals(1, occurrences(transcript(scenario, shell), direct))
+
+            val composed = "NEOTERM_PREEDIT_$nonce"
+            lateinit var old: InputConnection
+            activityValue(scenario) {
+                old = it.terminalView.onCreateInputConnection(EditorInfo())!!
+                assertTrue(old.setComposingText("printf '\\nNEOTERM_PREEDIT_%s\\n' '$nonce'", 1))
+            }
+            assertFalse(transcript(scenario, shell).contains(composed))
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+            waitUntil("Pending direct composition needed a second physical Enter") { transcript(scenario, shell).contains(composed) }
+            activityValue(scenario) { assertFalse(old.commitText("late", 1)) }
+            assertEquals(1, occurrences(transcript(scenario, shell), composed))
+        } finally {
+            scenario.close()
+        }
+    }
+
     @Test fun correctedParagraphWaitsForTransmitAndSeparateTerminalEnter() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

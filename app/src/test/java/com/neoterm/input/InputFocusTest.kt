@@ -28,6 +28,34 @@ import java.time.Duration
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = android.app.Application::class)
 class InputFocusTest {
+    @Test fun hardwareNavigationReturnsToDraftAfterActions() {
+        val controller = Robolectric.buildActivity(TermuxActivity::class.java).create().start().resume()
+        val activity = controller.get()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        activity.findViewById<RadioButton>(R.id.neoterm_mode_text).performClick()
+        val editor = activity.findViewById<CompositionEditText>(R.id.neoterm_draft)
+        for (id in intArrayOf(R.id.neoterm_transmit, R.id.neoterm_clear, R.id.neoterm_enter, R.id.neoterm_keys)) {
+            // Tab/DPAD from a physical keyboard can focus buttons without touch mode.
+            val button = activity.findViewById<View>(id)
+            assertTrue(button.requestFocus())
+            button.performClick()
+            assertTrue("Hardware typing lost after action $id", editor.hasFocus())
+            editor.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A))
+            editor.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A))
+            assertEquals("a", editor.text.toString())
+            editor.setText("")
+        }
+        val selected = activity.findViewById<View>(R.id.neoterm_mode_text)
+        assertTrue(selected.requestFocus())
+        selected.performClick()
+        assertTrue(editor.hasFocus())
+        activity.findViewById<View>(R.id.neoterm_mode_terminal).performClick()
+        val terminalMode = activity.findViewById<View>(R.id.neoterm_mode_terminal)
+        assertTrue(terminalMode.requestFocus())
+        terminalMode.performClick()
+        assertTrue(activity.terminalView.hasFocus())
+        controller.pause().stop().destroy()
+    }
     @Before fun bindQueueOnlyService() {
         // Real service/session objects, but no JNI/Linux subprocess in JVM tests.
         val service = Robolectric.buildService(TermuxService::class.java).get()

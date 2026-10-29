@@ -302,11 +302,13 @@ public final class TerminalView extends View {
     /** NeoTerm direct-input ownership gate. */
     private boolean mInputConnectionEnabled = true;
     private long mInputConnectionGeneration;
+    private BaseInputConnection mDirectInputConnection;
 
     public void setInputConnectionEnabled(boolean enabled) {
         if (mInputConnectionEnabled != enabled) {
             mInputConnectionEnabled = enabled;
             mInputConnectionGeneration++;
+            mDirectInputConnection = null;
         }
     }
 
@@ -347,7 +349,7 @@ public final class TerminalView extends View {
         // keyboard on Android TV (see https://github.com/termux/termux-app/issues/221).
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
 
-        return new BaseInputConnection(this, true) {
+        mDirectInputConnection = new BaseInputConnection(this, true) {
             private boolean isCurrent() {
                 return mInputConnectionEnabled && inputGeneration == mInputConnectionGeneration;
             }
@@ -459,6 +461,7 @@ public final class TerminalView extends View {
             }
 
         };
+        return mDirectInputConnection;
     }
 
     @Override
@@ -662,6 +665,30 @@ public final class TerminalView extends View {
     public boolean onKeyPreIme(int keyCode, KeyEvent event) {
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyPreIme(keyCode=" + keyCode + ", event=" + event + ")");
+        // NeoTerm: a physical Enter in direct input explicitly finalizes and submits.
+        // Do this before the IME can consume Enter just to accept its composing word.
+        // The separate paragraph editor never passes through this path.
+        if (mInputConnectionEnabled && event.isFromSource(InputDevice.SOURCE_KEYBOARD)
+            && (event.getFlags() & KeyEvent.FLAG_SOFT_KEYBOARD) == 0
+            && !event.isCtrlPressed() && !event.isAltPressed() && !event.isShiftPressed() && !event.isMetaPressed()
+            && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                BaseInputConnection connection = mDirectInputConnection;
+                if (connection != null && connection.getEditable().length() > 0) {
+                    connection.finishComposingText();
+                    // Late callbacks must not replay text that this explicit Enter sent.
+                    mInputConnectionGeneration++;
+                    mDirectInputConnection = null;
+                    android.view.inputmethod.InputMethodManager imm =
+                        (android.view.inputmethod.InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.restartInput(this);
+                }
+                return onKeyDown(keyCode, event);
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                onKeyUp(keyCode, event);
+                return true;
+            }
+        }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             cancelRequestAutoFill();
             if (isSelectingText()) {
