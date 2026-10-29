@@ -4,6 +4,13 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <TextView
+        android:id="@+id/neoterm_runtime_notice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="4dp"
+        android:text="@string/neoterm_runtime_notice" />
+
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="48dp"

@@ -19,4 +19,9 @@
     <string name="neoterm_invalid_unicode">Draft has an incomplete Unicode character. Correct it before transmitting.</string>
     <string name="neoterm_write_failed">Transmission failed. Draft kept; check the terminal before retrying.</string>
     <string name="neoterm_unsent_draft">Transmit or clear the draft before terminal Enter.</string>
+    <string name="neoterm_runtime_notice">Android system shell · Linux packages and AI coding CLIs are not bundled yet.</string>
+    <string name="neoterm_runtime_error">NeoTerm storage setup failed</string>
+    <string name="neoterm_runtime_error_body">NeoTerm could not create its private home and temporary directories. Check available storage and reopen the app.</string>
+    <string name="neoterm_unsupported_profile">Unsupported Android profile</string>
+    <string name="neoterm_unsupported_profile_body">This development build runs only in the primary Android user. Secondary users and work profiles are not supported. Open NeoTerm from the primary Android user to continue.</string>
 </resources>

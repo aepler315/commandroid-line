@@ -28,7 +28,7 @@ import com.termux.app.utils.PluginUtils;
 import com.termux.shared.data.IntentUtils;
 import com.termux.shared.models.errors.Errno;
 import com.termux.shared.shell.ShellUtils;
-import com.termux.shared.shell.TermuxShellEnvironmentClient;
+import com.neoterm.runtime.AndroidShellEnvironment;
 import com.termux.shared.shell.TermuxShellUtils;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_ACTIVITY;
@@ -429,7 +429,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         if (Logger.getLogLevel() >= Logger.LOG_LEVEL_VERBOSE)
             Logger.logVerboseExtended(LOG_TAG, executionCommand.toString());
 
-        TermuxTask newTermuxTask = TermuxTask.execute(this, executionCommand, this, new TermuxShellEnvironmentClient(), false);
+        TermuxTask newTermuxTask = TermuxTask.execute(this, executionCommand, this, new AndroidShellEnvironment(this), false);
         if (newTermuxTask == null) {
             Logger.logError(LOG_TAG, "Failed to execute new TermuxTask command for:\n" + executionCommand.getCommandIdAndLabelLogString());
             // If the execution command was started for a plugin, then process the error
@@ -503,6 +503,8 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
      */
     @Nullable
     public TermuxSession createTermuxSession(String executablePath, String[] arguments, String stdin, String workingDirectory, boolean isFailSafe, String sessionName) {
+        // NeoTerm manual sessions must not probe vendor login/bash/zsh executables.
+        if (executablePath == null) executablePath = "/system/bin/sh";
         return createTermuxSession(new ExecutionCommand(getNextExecutionId(), executablePath, arguments, stdin, workingDirectory, false, isFailSafe), sessionName);
     }
 
@@ -525,7 +527,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         // Otherwise if command was manually started by the user like by adding a new terminal session,
         // then no need to set stdout
         executionCommand.terminalTranscriptRows = getTerminalTranscriptRows();
-        TermuxSession newTermuxSession = TermuxSession.execute(this, executionCommand, getTermuxTerminalSessionClient(), this, new TermuxShellEnvironmentClient(), sessionName, executionCommand.isPluginExecutionCommand);
+        TermuxSession newTermuxSession = TermuxSession.execute(this, executionCommand, getTermuxTerminalSessionClient(), this, new AndroidShellEnvironment(this), sessionName, executionCommand.isPluginExecutionCommand);
         if (newTermuxSession == null) {
             Logger.logError(LOG_TAG, "Failed to execute new TermuxSession command for:\n" + executionCommand.getCommandIdAndLabelLogString());
             // If the execution command was started for a plugin, then process the error
