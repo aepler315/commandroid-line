@@ -40,7 +40,7 @@ printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 ./tools/neoterm-debug.sh
 ```
 
-The script selects version `0.118.3-neoterm.standalone1`, runs the JVM suite and
+The script selects version `0.118.3-neoterm.standalone2`, runs the JVM suite and
 builds a universal debug APK plus the instrumentation APK. Expected output paths
 after a successful build:
 
@@ -78,6 +78,19 @@ These are acceptance instructions, not a claim that installation was executed.
 Check distinct UIDs/data, both launchers, shortcut targets and preservation of
 Termux's existing files using [TESTING.md](TESTING.md). Do not uninstall Termux
 to make a failing coexistence test pass.
+
+## GitHub checks
+
+Pull requests to `main` and pushes to `main`/`feature/neoterm-standalone` run pinned
+Android toolchain setup, the JVM suite, Python bootstrap-tool tests, lint and debug
+app/test APK builds. Reports and development APKs are workflow artifacts. The
+workflow grants only repository read permission and does not publish releases or
+deploy applications. Inherited upstream release-upload/JitPack workflows were
+removed from this independent repository.
+
+Each GitHub runner generates its own debug signing key. Its APK artifacts cannot
+be assumed to update the privately delivered development APKs signed in the
+original workspace. Stable developer/release signing is still pending.
 
 ## Checks and evidence
 
