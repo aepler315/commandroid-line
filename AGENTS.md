@@ -35,7 +35,8 @@ Record commands, actual outcomes and blockers; never call unrun checks passed.
 Kotlin for new input logic, Java interop for narrow upstream hooks. UI operations
 run on Android's main thread. Prefer Android's standard IME implementation.
 Never log input, passwords, key events or text snapshots. No draft persistence,
-analytics or clipboard copying. Keep all copyright and license notices.
+analytics or automatic clipboard copying. User-initiated native editing actions
+remain available. Keep all copyright and license notices.
 Retain `com.termux`, /data/data/com.termux/files/usr and upstream bootstraps in
 Milestone 1. Do not claim side-by-side installation. No publication, deployment,
 remote pushes or PR creation without explicit user authorization. Work on

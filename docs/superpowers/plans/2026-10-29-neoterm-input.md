@@ -23,10 +23,10 @@ src/test/kotlin/com/neoterm/input/InputEngineTest.kt; root Gradle/settings.
 Interfaces: Draft (text, composing, finishComposition, clear); TerminalTarget
 (identity, running, bracketedPaste, write); InputEngine mode, generation,
 applyImeEdit, bindSession, setMode, openComposer, transmit, submit.
-- [ ] Write tests for ordinary commands/paths, modes, transitions, composition,
+- [x] Write tests for ordinary commands/paths, modes, transitions, composition,
       correction, multiline, Unicode/control validation, stale callbacks,
       no implicit submission, restart, rejected transport and diagnostic privacy.
-- [ ] Observe RED, implement engine, run :neoterm-input:test, commit.
+- [x] Observe RED, implement engine, run :neoterm-input:test, commit.
 
 ### Task 2: Android vertical slice
 Files: app/src/main/java/com/neoterm/input/{CompositionEditText,NeoTermInputController}.kt,
@@ -34,14 +34,14 @@ app build.gradle/resources/layout and TermuxActivity/session client; one read-on
 TerminalEmulator bracketed-paste getter; TerminalView logging hardening.
 Interface: native InputConnection delegates edits through InputEngine generation
 gate; controller binds actual session and explicit buttons, no cursor mirror.
-- [ ] Write Android IME callback, surrogate deletion, selection, action, stale
+- [x] Write Android IME callback, surrogate deletion, selection, action, stale
       connection, privacy and hardware tests; observe missing functionality.
-- [ ] Implement widget/controller, selector, explicit send/Enter and Keys toggle.
-- [ ] Run module and Android JVM suites; build debug and test APKs; commit.
+- [x] Implement widget/controller, selector, explicit send/Enter and Keys toggle.
+- [x] Run module and Android JVM suites; build debug and test APKs; commit.
 
 ### Task 3: Release readiness documentation and review
 Files: docs/neoterm/{BUILD,TESTING,MIGRATION,ROADMAP,VERIFICATION}.md, CHANGELOG.md.
-- [ ] Document exact environment/results and pending physical IME checks.
-- [ ] Run all available tests, lint/build and connected instrumentation attempt.
-- [ ] Fresh branch review; reproduce/fix important findings with regressions.
-- [ ] Commit verified changes and report artifacts/blockers without publishing.
+- [x] Document exact environment/results and pending physical IME checks.
+- [x] Run all available tests, lint/build and connected instrumentation attempt.
+- [x] Fresh branch review; reproduce/fix important findings with regressions.
+- [x] Commit verified changes and report artifacts/blockers without publishing.

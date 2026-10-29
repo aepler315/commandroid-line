@@ -47,3 +47,11 @@ Plan: docs/superpowers/plans/2026-10-29-neoterm-input.md
   No review minors deferred. Physical IMEs, layout/accessibility, end-to-end PTY/
   agents, grapheme editing, keyboard privacy compliance and independent packaging
   remain explicit device/release acceptance work, not inferred passes.
+- Task 3 complete: final pinned debug build passed; 200/200 JVM tests, lint 0 errors
+  and 45 warnings, signed app + instrumentation APKs. Connected instrumentation
+  attempted after fixes and blocked only by no attached device. Real IME/agent
+  acceptance remains pending. VERIFICATION.md records exact commands and artifacts.
+- Reproducibility check: forced :app:packageDebug --rerun-tasks re-executed 105
+  tasks and produced the same SHA-256 as the initial final build.
+- Keeping the requested development branch and checkout; no publication, push,
+  merge or PR. Final documentation/source attribution committed for handoff.

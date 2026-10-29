@@ -1,3 +1,29 @@
+# NeoTerm — Android terminal input milestone
+
+Independent development fork of official Termux v0.118.3. NeoTerm stages a full
+paragraph in a native Android editor for correction before explicit transmission.
+This is a development milestone, not an official Termux update.
+
+Choose **TEXT**, write/correct in the **Draft — not sent** editor, tap **Transmit**,
+then use **Enter ↵** separately to submit. **AUTO** keeps exact direct input until
+you tap **Compose**. **TERMINAL** preserves the upstream keyboard path. Line breaks
+and tabs require bracketed-paste support in the receiving application.
+
+See [architecture](docs/neoterm/ARCHITECTURE.md), [build](docs/neoterm/BUILD.md),
+[verification](docs/neoterm/VERIFICATION.md), [IME tests](docs/neoterm/TESTING.md),
+[independent-package plan](docs/neoterm/MIGRATION.md), [roadmap and risks](docs/neoterm/ROADMAP.md),
+and [changelog](CHANGELOG.md).
+
+**Compatibility:** this milestone retains `com.termux` and the upstream Linux
+prefix/bootstrap. It cannot install alongside official Termux. Use a disposable
+test device; physical Gboard/Samsung and agent acceptance remains pending.
+Drafts are memory-only and are discarded on session changes or activity recreation.
+Use TERMINAL for passwords. No NeoTerm input text is logged.
+
+The upstream README and attribution follow, preserved for reference.
+
+---
+
 # Termux application
 
 [![Build status](https://github.com/termux/termux-app/workflows/Build/badge.svg)](https://github.com/termux/termux-app/actions)

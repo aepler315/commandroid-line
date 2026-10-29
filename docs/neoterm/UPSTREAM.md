@@ -20,3 +20,8 @@ No upstream copyright notices or assets have been removed.
 Milestone 1 keeps Termux launcher/package identity for bootstrap compatibility.
 It is a development fork, not an official Termux update. The public upstream
 test signing key is unsuitable for a production release. See MIGRATION.md.
+
+Full texts for the principal repository licenses and Classpath exception are kept
+in LICENSES/ (verbatim SPDX license-list-data texts). Per-file exceptions remain
+as specified by upstream; adding texts does not relicense those components.
+Review all transitive dependency notices before public binary distribution.
