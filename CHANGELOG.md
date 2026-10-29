@@ -14,6 +14,10 @@
 - Removed incompatible upstream bootstrap download/embedding from the app build;
   retained the terminal-emulator PTY library and historical bootstrap C sources.
 - Added standalone identity, startup and shell-environment regression tests.
+- Fixed unreadable mode/draft labels using an isolated dark input surface, with
+  contrast regressions for both activity themes and terminal palettes.
+- Verified 216 JVM tests, 20 Android tests (including native PTY composition),
+  and installation alongside official Termux with distinct UIDs/data.
 - Added source preparation and validation tooling for future custom-prefix
   bootstraps; no completed Linux bootstrap or package repository is included.
 

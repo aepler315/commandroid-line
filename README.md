@@ -18,8 +18,9 @@ and [changelog](CHANGELOG.md).
 
 **Runtime:** NeoTerm starts Android's `/system/bin/sh` with private home and
 temporary directories. It has a separate package, providers, permissions and UID
-declaration for installation alongside Termux; actual device coexistence remains
-pending verification. Debug builds use Android's locally generated debug key.
+declaration. Installation alongside official Termux, separate UIDs and preservation
+of a Termux sentinel are verified on an API 28 emulator. Physical-device and
+vendor-IME acceptance remain pending. Debug builds use a locally generated key.
 No upstream Termux bootstrap is bundled or installed. `pkg`/apt, bash, Python,
 Node, SSH and AI coding CLIs are unavailable until compatible packages are built
 and validated. The system shell runs with ordinary Android application privileges.

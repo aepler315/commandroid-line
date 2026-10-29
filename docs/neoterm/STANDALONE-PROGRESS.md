@@ -13,14 +13,17 @@ installation, superseding initial compatibility milestone restrictions.
 - Implemented Android system-shell environment and bootstrap-free startup, with
   a visible runtime limitation notice. Primary-user guard and explicit manual
   `/system/bin/sh` selection address review findings.
-- Product commit `8dc78469`: 214 JVM tests pass; app + 20-test instrumentation APK
-  compile; lint 0 errors/51 warnings. Device execution is pending separately.
+- Product commits `8dc78469`/`c212568b`: 216 JVM tests pass; app + instrumentation
+  APK compile; lint 0 errors/52 warnings. Screenshot-discovered label contrast
+  defect fixed, with two failing-then-passing palette/theme regression tests.
 - Bootstrap tooling commit `3f677919`: 11 Python safety tests and actual prepared
   source verification pass. Full 111-package bootstrap closure, compatible apt
   repository and AI coding CLIs remain unbuilt. NDK r27c/JDK17 are absent and the
   current 18GiB disk headroom/vfs builder is below recommended build capacity.
-- Software API28 x86_64 emulator boots and official Termux v0.118.3 is installed;
-  original-package sentinel/UID baseline recorded. Post-boot adb responsiveness
-  is being investigated before claiming coexistence or native PTY acceptance.
+- API28 x86_64 emulator recovered with 2 CPUs/2GiB; official Termux UID10067 and
+  NeoTerm UID10068 coexist. Original sentinel unchanged. All 20 Android tests pass
+  on the corrected APK in 26.669s, including real native PTY Unicode composition,
+  explicit Transmit/Enter separation and fixture-log privacy. Physical vendor IMEs
+  and complete Linux/agent runtime remain pending.
 - See STANDALONE-VERIFICATION.md for exact commands, counts, hashes and remaining
   device/physical-keyboard acceptance checks. Historical M1 APKs use com.termux.

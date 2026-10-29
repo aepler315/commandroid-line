@@ -7,7 +7,8 @@ The current branch adds `com.neoterm`, no shared UID, local debug signing, isola
 data/contracts and Android system-shell startup without an upstream bootstrap.
 See [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md) for current evidence;
 the old M1 test/build record is archived. Production Gboard/Samsung certification
-and actual device coexistence remain acceptance work.
+remain acceptance work. Coexistence and 20 Android tests including native PTY
+composition pass on an API 28 x86_64 emulator; physical-device coverage remains pending.
 
 ## Next priorities
 1. Run the standalone installation, live PTY and real IME matrix in TESTING.md.
