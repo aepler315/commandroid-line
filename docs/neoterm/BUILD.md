@@ -81,7 +81,7 @@ to make a failing coexistence test pass.
 
 ## GitHub checks
 
-Pull requests to `main` and pushes to `main`/`feature/neoterm-standalone` run pinned
+Pull requests to `main` and pushes to `main` run pinned
 Android toolchain setup, the JVM suite, Python bootstrap-tool tests, lint and debug
 app/test APK builds. Reports and development APKs are workflow artifacts. The
 workflow grants only repository read permission and does not publish releases or
