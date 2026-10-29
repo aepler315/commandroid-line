@@ -103,6 +103,9 @@
 
     </RelativeLayout>
 
+    <!-- NeoTerm: explicit composition lives outside terminal screen state. -->
+    <include layout="@layout/view_neoterm_input" />
+
     <View
         android:id="@+id/activity_termux_bottom_space_view"
         android:layout_width="match_parent"

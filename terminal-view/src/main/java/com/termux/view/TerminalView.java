@@ -46,7 +46,8 @@ import com.termux.view.textselection.TextSelectionCursorController;
 public final class TerminalView extends View {
 
     /** Log terminal view key and IME events. */
-    private static boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
+    // NeoTerm: key events/code points can contain passwords, even in direct mode.
+    private static final boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
 
     /** The currently displayed terminal session, whose emulator is {@link #mEmulator}. */
     public TerminalSession mTermSession;
@@ -271,7 +272,7 @@ public final class TerminalView extends View {
      * @param value The boolean value that defines the state.
      */
     public void setIsTerminalViewKeyLoggingEnabled(boolean value) {
-        TERMINAL_VIEW_KEY_LOGGING_ENABLED = value;
+        // NeoTerm: retain the API but never enable input-content logging.
     }
 
 
@@ -285,6 +286,7 @@ public final class TerminalView extends View {
         if (session == mTermSession) return false;
         mTopRow = 0;
 
+        mInputConnectionGeneration++; // NeoTerm: a stale IME must not type into a new session.
         mTermSession = session;
         mEmulator = null;
         mCombiningAccent = 0;
@@ -297,8 +299,21 @@ public final class TerminalView extends View {
         return true;
     }
 
+    /** NeoTerm direct-input ownership gate. */
+    private boolean mInputConnectionEnabled = true;
+    private long mInputConnectionGeneration;
+
+    public void setInputConnectionEnabled(boolean enabled) {
+        if (mInputConnectionEnabled != enabled) {
+            mInputConnectionEnabled = enabled;
+            mInputConnectionGeneration++;
+        }
+    }
+
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        if (!mInputConnectionEnabled) return null;
+        final long inputGeneration = ++mInputConnectionGeneration;
         // Ensure that inputType is only set if TerminalView is selected view with the keyboard and
         // an alternate view is not selected, like an EditText. This is necessary if an activity is
         // initially started with the alternate view or if activity is returned to from another app
@@ -333,9 +348,24 @@ public final class TerminalView extends View {
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
 
         return new BaseInputConnection(this, true) {
+            private boolean isCurrent() {
+                return mInputConnectionEnabled && inputGeneration == mInputConnectionGeneration;
+            }
+
+            @Override
+            public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                return isCurrent() && super.setComposingText(text, newCursorPosition);
+            }
+
+            @Override
+            public boolean sendKeyEvent(KeyEvent event) {
+                return isCurrent() && super.sendKeyEvent(event);
+            }
+
 
             @Override
             public boolean finishComposingText() {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) mClient.logInfo(LOG_TAG, "IME: finishComposingText()");
                 super.finishComposingText();
 
@@ -346,6 +376,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: commitText(\"" + text + "\", " + newCursorPosition + ")");
                 }
@@ -361,6 +392,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: deleteSurroundingText(" + leftLength + ", " + rightLength + ")");
                 }

@@ -5,7 +5,7 @@
 **Goal:** Stage Android IME text outside the PTY, then explicitly transmit it.
 **Architecture:** Pure Kotlin lifecycle/paste policy; native EditText owns all
 text and selection. Narrow app session/UI hooks preserve direct TerminalView.
-**Tech stack:** Termux v0.118.3, Kotlin 1.8.22, JDK 11, AGP 4.2.2, Gradle 7.2.
+**Tech stack:** Termux v0.118.3, Kotlin 1.8.22, JDK 11, AGP 7.4.2, Gradle 7.6.4.
 **Spec:** docs/neoterm/ARCHITECTURE.md and user's Milestone 1 requirements.
 
 ## Global constraints
