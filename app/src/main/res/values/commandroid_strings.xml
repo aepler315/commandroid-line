@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <string name="commandroid_app_name" translatable="false">commandroid-line</string>
+    <string name="commandroid_new_session">New</string>
+    <string name="commandroid_new_session_description">Open a new terminal session</string>
+    <string name="commandroid_next_session">Next</string>
+    <string name="commandroid_next_session_description">Switch to the next terminal session</string>
+    <string name="commandroid_session_title">%1$s (%2$d of %3$d)</string>
+    <string name="commandroid_terminal_description">Terminal output and command prompt</string>
+</resources>
