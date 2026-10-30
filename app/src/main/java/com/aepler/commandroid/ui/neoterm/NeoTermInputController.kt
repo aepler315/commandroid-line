@@ -28,6 +28,9 @@ interface ImeBridge {
 
     fun showSoftInput(view: View)
 
+    /** Tells the IME that the staged buffer's selection changed outside the InputConnection. */
+    fun updateSelection(view: View, selStart: Int, selEnd: Int, composingStart: Int, composingEnd: Int) {}
+
     /** Runs [block] on the main thread: synchronously when already on it, otherwise posted. */
     fun postToMain(view: View, block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -49,6 +52,10 @@ object SystemImeBridge : ImeBridge {
 
     override fun showSoftInput(view: View) {
         imm(view)?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    override fun updateSelection(view: View, selStart: Int, selEnd: Int, composingStart: Int, composingEnd: Int) {
+        imm(view)?.updateSelection(view, selStart, selEnd, composingStart, composingEnd)
     }
 }
 
@@ -81,6 +88,15 @@ class NeoTermInputController(
     /** True while the IME edits the staged buffer; false means raw key-event bypass (TYPE_NULL). */
     var isStagedTextMode: Boolean = true
         private set
+
+    /**
+     * Optional hook consulted before the IME commits text. Returning true consumes the text (for
+     * example a letter typed while a sticky CTRL/ALT modifier is armed) instead of staging it.
+     */
+    var onCommitTextIntercepted: ((text: CharSequence) -> Boolean)? = null
+
+    /** Connection used for edits that arrive as key events or from on-screen terminal keys. */
+    private val keyConnection: StagedInputConnection by lazy { StagedInputConnection(inputView(), true) }
 
     /** Incremented on every effective session switch so stale posted restarts can be dropped. */
     private var sessionGeneration = 0
@@ -140,6 +156,101 @@ class NeoTermInputController(
             }
             imeBridge.restartInput(view)
         }
+    }
+
+    /**
+     * Routes a key event that did not come through the InputConnection (hardware keyboard, on-screen
+     * key bar) into the staged buffer. Returns true when the event was consumed.
+     */
+    @MainThread
+    fun handleKeyEvent(event: KeyEvent): Boolean {
+        val isDown = event.action == KeyEvent.ACTION_DOWN
+        if (isDown && onControlKeyIntercepted(event.keyCode, event)) return true
+        if (!isStagedTextMode) return false
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                if (isDown) commitStagedLine()
+                return true
+            }
+            KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL -> {
+                if (isDown && stagedEditable.isNotEmpty()) {
+                    keyConnection.deleteOneUnit(forward = event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL)
+                    syncImeSelection()
+                }
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (isDown) moveCursor(if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
+                return true
+            }
+            KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END -> {
+                if (isDown) moveCursorTo(if (event.keyCode == KeyEvent.KEYCODE_MOVE_HOME) 0 else stagedEditable.length)
+                return true
+            }
+        }
+        val codePoint = event.unicodeChar
+        if (codePoint == 0 || Character.isISOControl(codePoint) && codePoint != '\t'.code) return false
+        if (isDown) insertText(String(Character.toChars(codePoint)))
+        return true
+    }
+
+    /** Moves the staged cursor by [codePoints] whole code points (negative = left), never into a pair. */
+    @MainThread
+    fun moveCursor(codePoints: Int) {
+        val text = stagedEditable
+        val cursor = Selection.getSelectionEnd(text).let { if (it < 0) text.length else it }
+        val safe = clampToSurrogateSafeBoundary(text, cursor, preferStart = true)
+        var target = safe
+        var remaining = codePoints
+        while (remaining < 0 && target > 0) {
+            target = Character.offsetByCodePoints(text, target, -1)
+            remaining++
+        }
+        while (remaining > 0 && target < text.length) {
+            target = Character.offsetByCodePoints(text, target, 1)
+            remaining--
+        }
+        moveCursorTo(target)
+    }
+
+    /** Inserts [text] at the staged cursor (replacing any selection) as if the IME committed it. */
+    @MainThread
+    fun insertText(text: CharSequence) {
+        if (!isStagedTextMode) return
+        BaseInputConnection.removeComposingSpans(stagedEditable)
+        keyConnection.commitText(text, 1)
+        syncImeSelection()
+    }
+
+    /** Discards the staged line without submitting it (CMD's ESC behaviour). */
+    @MainThread
+    fun clearStagedText() {
+        if (stagedEditable.isEmpty()) return
+        BaseInputConnection.removeComposingSpans(stagedEditable)
+        stagedEditable.clear()
+        Selection.setSelection(stagedEditable, 0)
+        notifyStagedState()
+        syncImeSelection()
+    }
+
+    private fun moveCursorTo(index: Int) {
+        val text = stagedEditable
+        val target = clampToSurrogateSafeBoundary(text, index, preferStart = true)
+        BaseInputConnection.removeComposingSpans(text)
+        Selection.setSelection(text, target)
+        notifyStagedState()
+        syncImeSelection()
+    }
+
+    private fun syncImeSelection() {
+        val text = stagedEditable
+        imeBridge.updateSelection(
+            inputView(),
+            Selection.getSelectionStart(text),
+            Selection.getSelectionEnd(text),
+            BaseInputConnection.getComposingSpanStart(text),
+            BaseInputConnection.getComposingSpanEnd(text)
+        )
     }
 
     fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
@@ -311,6 +422,12 @@ class NeoTermInputController(
         ): Boolean = setComposingText(text, newCursorPosition)
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            if (text != null && text.isNotEmpty() && onCommitTextIntercepted?.invoke(text) == true) {
+                // The text was consumed (e.g. as a CTRL combination); settle any composition in place.
+                removeComposingSpans(stagedEditable)
+                notifyStagedState()
+                return true
+            }
             sanitizeRangeBeforeComposingMutation()
             super.commitText(text ?: "", newCursorPosition)
             sanitizeStagedRanges(this)
@@ -466,7 +583,7 @@ class NeoTermInputController(
             return super.sendKeyEvent(event)
         }
 
-        private fun deleteOneUnit(forward: Boolean) {
+        internal fun deleteOneUnit(forward: Boolean) {
             val content = stagedEditable
             val selStart = Selection.getSelectionStart(content)
             val selEnd = Selection.getSelectionEnd(content)

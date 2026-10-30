@@ -60,6 +60,7 @@ class TerminalViewModel @Inject constructor(
             is TerminalIntent.KillActiveProcess -> kill(intent.sessionId)
             is TerminalIntent.ResizeTerminal -> reduce { TerminalReducer.resize(it, intent.columns, intent.rows) }
             TerminalIntent.ClearScreen -> reduce { TerminalReducer.clearScreen(it, it.activeSessionId) }
+            is TerminalIntent.SendRawInput -> sendRaw(intent.sessionId, intent.bytes)
         }
     }
 
@@ -172,6 +173,21 @@ class TerminalViewModel @Inject constructor(
                 diagnostic(sessionId, "Could not stop the process: ${e.javaClass.simpleName}")
             }
             if (!repository.isRunning(sessionId)) reduce { TerminalReducer.markStopped(it, sessionId) }
+        }
+    }
+
+    private fun sendRaw(sessionId: String, bytes: ByteArray) {
+        val session = model.session(sessionId) ?: return
+        if (bytes.isEmpty()) return
+        if (!session.isProcessRunning) {
+            // The idle shell reads commands from the same pipe; raw bytes would corrupt the next one.
+            sideEffectChannel.trySend(TerminalSideEffect.HapticFeedback(isError = true))
+            return
+        }
+        val copy = bytes.copyOf()
+        viewModelScope.launch {
+            runCatching { repository.writeStdin(sessionId, copy) }
+                .onFailure { if (it is CancellationException) throw it else diagnostic(sessionId, "Could not write to the running process.") }
         }
     }
 

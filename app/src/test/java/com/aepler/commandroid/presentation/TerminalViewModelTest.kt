@@ -333,6 +333,32 @@ class TerminalViewModelTest {
     }
 
     @Test
+    fun rawInputGoesToStdinOnlyWhileProcessRuns() = runTest(dispatcher) {
+        collectSideEffects()
+        advanceUntilIdle()
+        sideEffects.clear()
+        viewModel.dispatch(TerminalIntent.SendRawInput("session-1", byteArrayOf(0x04)))
+        advanceUntilIdle()
+        assertTrue(repository.stdin.isEmpty())
+        assertEquals(listOf(TerminalSideEffect.HapticFeedback(isError = true)), sideEffects)
+
+        viewModel.dispatch(TerminalIntent.SubmitCommand("cat"))
+        advanceUntilIdle()
+        viewModel.dispatch(TerminalIntent.SendRawInput("session-1", byteArrayOf(0x1b, '['.code.toByte(), 'A'.code.toByte())))
+        advanceUntilIdle()
+        assertEquals(listOf("\u001b[A"), repository.stdin)
+    }
+
+    @Test
+    fun sendRawInputEqualityUsesByteContent() {
+        assertEquals(
+            TerminalIntent.SendRawInput("s", byteArrayOf(1, 2)),
+            TerminalIntent.SendRawInput("s", byteArrayOf(1, 2))
+        )
+        assertFalse(TerminalIntent.SendRawInput("s", byteArrayOf(1)) == TerminalIntent.SendRawInput("s", byteArrayOf(2)))
+    }
+
+    @Test
     fun resizeIsStored() = runTest(dispatcher) {
         viewModel.dispatch(TerminalIntent.ResizeTerminal(120, 40))
         assertEquals(120, state.columns)

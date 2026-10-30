@@ -11,6 +11,19 @@ sealed interface TerminalIntent {
     data class KillActiveProcess(val sessionId: String) : TerminalIntent
     data class ResizeTerminal(val columns: Int, val rows: Int) : TerminalIntent
     data object ClearScreen : TerminalIntent
+
+    /**
+     * Raw bytes (control characters, escape sequences) for the foreground process of [sessionId].
+     * Dropped with error haptics when no command is running, so stray bytes never reach the idle shell.
+     */
+    class SendRawInput(val sessionId: String, val bytes: ByteArray) : TerminalIntent {
+        override fun equals(other: Any?): Boolean =
+            other is SendRawInput && other.sessionId == sessionId && other.bytes.contentEquals(bytes)
+
+        override fun hashCode(): Int = 31 * sessionId.hashCode() + bytes.contentHashCode()
+
+        override fun toString(): String = "SendRawInput(sessionId=$sessionId, bytes=${bytes.size})"
+    }
 }
 
 data class TerminalSessionState(

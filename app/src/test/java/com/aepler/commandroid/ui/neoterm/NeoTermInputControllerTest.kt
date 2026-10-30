@@ -358,4 +358,58 @@ class NeoTermInputControllerTest {
         assertEquals(4, controller.clampToSurrogateSafeBoundary(text, 99, preferStart = true))
         assertEquals(3, controller.clampToSurrogateSafeBoundary(text, 3, preferStart = true))
     }
+
+    private fun down(keyCode: Int) = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+
+    @Test
+    fun hardwareKeysEditStagedBufferSurrogateSafely() {
+        controller.onSessionChanged("s1", "a\uD83D\uDE80b")
+        idleMain()
+        assertTrue(controller.handleKeyEvent(down(KeyEvent.KEYCODE_DPAD_LEFT)))
+        assertEquals(3, Selection.getSelectionEnd(controller.stagedEditable))
+        assertTrue(controller.handleKeyEvent(down(KeyEvent.KEYCODE_DPAD_LEFT)))
+        assertEquals(1, Selection.getSelectionEnd(controller.stagedEditable))
+        assertTrue(controller.handleKeyEvent(down(KeyEvent.KEYCODE_X)))
+        assertEquals("ax\uD83D\uDE80b", controller.stagedText)
+        assertTrue(controller.handleKeyEvent(down(KeyEvent.KEYCODE_FORWARD_DEL)))
+        assertEquals("axb", controller.stagedText)
+        assertNoUnpairedSurrogates("hardware edit")
+        assertTrue(controller.handleKeyEvent(down(KeyEvent.KEYCODE_ENTER)))
+        assertEquals(listOf("axb"), committedLines)
+        assertEquals("", controller.stagedText)
+    }
+
+    @Test
+    fun handleKeyEventConsultsControlInterceptorFirst() {
+        interceptControlKeys = true
+        assertTrue(controller.handleKeyEvent(down(KeyEvent.KEYCODE_C)))
+        assertEquals(listOf(KeyEvent.KEYCODE_C), interceptedKeys)
+        assertEquals("", controller.stagedText)
+    }
+
+    @Test
+    fun moveCursorClampsAndClearStagedTextDiscardsLine() {
+        controller.onSessionChanged("s1", "\uD83D\uDE80x")
+        idleMain()
+        controller.moveCursor(-10)
+        assertEquals(0, Selection.getSelectionEnd(controller.stagedEditable))
+        controller.moveCursor(1)
+        assertEquals(2, Selection.getSelectionEnd(controller.stagedEditable))
+        controller.moveCursor(10)
+        assertEquals(3, Selection.getSelectionEnd(controller.stagedEditable))
+        controller.clearStagedText()
+        assertEquals("", controller.stagedText)
+        assertTrue(committedLines.isEmpty())
+        assertEquals("" to null, bufferUpdates.last())
+    }
+
+    @Test
+    fun commitTextInterceptorConsumesText() {
+        controller.onCommitTextIntercepted = { it == "c" }
+        val ic = connection()
+        ic.commitText("c", 1)
+        assertEquals("", controller.stagedText)
+        ic.commitText("d", 1)
+        assertEquals("d", controller.stagedText)
+    }
 }

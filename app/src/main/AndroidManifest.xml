@@ -78,7 +78,8 @@
             android:resizeableActivity="true"
             android:taskAffinity="${TERMUX_PACKAGE_NAME}.commandroid"
             android:windowSoftInputMode="adjustResize">
-            <intent-filter>
+            <!-- Second launcher icon; the lower priority keeps TermuxActivity as the package's launch intent. -->
+            <intent-filter android:priority="-1">
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
