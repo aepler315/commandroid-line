@@ -4,12 +4,17 @@ buildscript {
         google()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.4.2'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.22'
+        classpath 'com.google.dagger:hilt-android-gradle-plugin:2.51.1'
+        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24'
     }
 }
 
 allprojects {
+    // Guava 24 bundles ListenableFuture; drop the standalone artifact pulled in by AndroidX.
+    configurations.configureEach {
+        exclude group: "com.google.guava", module: "listenablefuture"
+    }
     repositories {
         google()
         mavenCentral()
@@ -18,5 +23,5 @@ allprojects {
 }
 
 task clean(type: Delete) {
-    delete rootProject.buildDir
+    delete rootProject.layout.buildDirectory
 }

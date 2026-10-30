@@ -1,6 +1,5 @@
 package com.termux.app;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -14,6 +13,7 @@ import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.view.ContextMenu;
@@ -286,6 +286,8 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
         Logger.logVerbose(LOG_TAG, "onResume");
 
         if (mIsInvalidState) return;
+
+        completePendingStoragePermissionRequest();
 
         if (mTermuxTerminalSessionClient != null)
             mTermuxTerminalSessionClient.onResume();
@@ -724,12 +726,30 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
      * For processes to access shared internal storage (/sdcard) we need this permission.
      */
     public boolean ensureStoragePermissionGranted() {
-        if (PermissionUtils.checkPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+        // NeoTerm: at targetSdk 30+ WRITE_EXTERNAL_STORAGE no longer grants /sdcard access (and is
+        // auto-denied at 33+), so API 30+ goes through "All files access" instead.
+        if (PermissionUtils.checkStoragePermission(this)) {
             return true;
         } else {
             Logger.logInfo(LOG_TAG, "Storage permission not granted, requesting permission.");
-            PermissionUtils.requestPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE, PermissionUtils.REQUEST_GRANT_STORAGE_PERMISSION);
+            mStoragePermissionRequested = true;
+            PermissionUtils.requestStoragePermission(this, PermissionUtils.REQUEST_GRANT_STORAGE_PERMISSION);
             return false;
+        }
+    }
+
+    /** Set while an "All files access" settings request (API 30+) is outstanding. */
+    private boolean mStoragePermissionRequested = false;
+
+    /** Completes a pending storage request once the user returns from the settings screen. */
+    private void completePendingStoragePermissionRequest() {
+        if (!mStoragePermissionRequested || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        mStoragePermissionRequested = false;
+        if (PermissionUtils.checkStoragePermission(this)) {
+            Logger.logInfo(LOG_TAG, "All files access granted by user on request.");
+            TermuxInstaller.setupStorageSymlinks(this);
+        } else {
+            Logger.logInfo(LOG_TAG, "All files access denied by user on request.");
         }
     }
 
@@ -844,7 +864,8 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
 
     public static void updateTermuxActivityStyling(Context context) {
         // Make sure that terminal styling is always applied.
-        Intent stylingIntent = new Intent(TERMUX_ACTIVITY.ACTION_RELOAD_STYLE);
+        // NeoTerm: the receiver is not exported, so keep this broadcast inside the app package.
+        Intent stylingIntent = new Intent(TERMUX_ACTIVITY.ACTION_RELOAD_STYLE).setPackage(context.getPackageName());
         context.sendBroadcast(stylingIntent);
     }
 
@@ -853,7 +874,9 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
         intentFilter.addAction(TERMUX_ACTIVITY.ACTION_REQUEST_PERMISSIONS);
         intentFilter.addAction(TERMUX_ACTIVITY.ACTION_RELOAD_STYLE);
 
-        registerReceiver(mTermuxActivityBroadcastReceiver, intentFilter);
+        // NeoTerm: these actions are app-internal; SDK 34 requires an explicit export flag.
+        ContextCompat.registerReceiver(this, mTermuxActivityBroadcastReceiver, intentFilter,
+            ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     private void unregisterTermuxActivityBroadcastReceiever() {

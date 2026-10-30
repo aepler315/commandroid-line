@@ -22,6 +22,7 @@ import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE;
 import com.termux.shared.file.FileUtils;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.notification.NotificationUtils;
+import com.termux.app.utils.ForegroundServiceUtils;
 import com.termux.app.utils.PluginUtils;
 import com.termux.shared.models.ExecutionCommand;
 
@@ -213,10 +214,19 @@ public class RunCommandService extends Service {
         }
 
         // Start TERMUX_SERVICE and pass it execution intent
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            this.startForegroundService(execIntent);
-        } else {
-            this.startService(execIntent);
+        // NeoTerm: at targetSdk 31+ starting a foreground service from the background throws
+        // (ForegroundServiceStartNotAllowedException / IllegalStateException). Report a plugin
+        // error instead of crashing the whole process and every live session.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                this.startForegroundService(execIntent);
+            } else {
+                this.startService(execIntent);
+            }
+        } catch (IllegalStateException | SecurityException e) {
+            errmsg = "Could not start " + TermuxConstants.TERMUX_APP_NAME + " service from the background: " + e.getMessage();
+            executionCommand.setStateFailed(Errno.ERRNO_FAILED.getCode(), errmsg);
+            PluginUtils.processPluginExecutionCommandError(this, LOG_TAG, executionCommand, false);
         }
 
         return stopService();
@@ -230,13 +240,15 @@ public class RunCommandService extends Service {
     private void runStartForeground() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             setupNotificationChannel();
-            startForeground(TermuxConstants.TERMUX_RUN_COMMAND_NOTIFICATION_ID, buildNotification());
+            // NeoTerm: SDK 34 requires a declared foreground service type.
+            if (!ForegroundServiceUtils.startSpecialUseForeground(this, TermuxConstants.TERMUX_RUN_COMMAND_NOTIFICATION_ID, buildNotification()))
+                Logger.logWarn(LOG_TAG, "Foreground promotion refused; continuing as a background service");
         }
     }
 
     private void runStopForeground() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            stopForeground(true);
+            ForegroundServiceUtils.stopForegroundAndRemoveNotification(this);
         }
     }
 

@@ -24,6 +24,7 @@ import androidx.annotation.Nullable;
 import com.termux.R;
 import com.termux.app.settings.properties.TermuxAppSharedProperties;
 import com.termux.app.terminal.TermuxTerminalSessionClient;
+import com.termux.app.utils.ForegroundServiceUtils;
 import com.termux.app.utils.PluginUtils;
 import com.termux.shared.data.IntentUtils;
 import com.termux.shared.models.errors.Errno;
@@ -193,12 +194,14 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
     /** Make service run in foreground mode. */
     private void runStartForeground() {
         setupNotificationChannel();
-        startForeground(TermuxConstants.TERMUX_APP_NOTIFICATION_ID, buildNotification());
+        // NeoTerm: SDK 34 requires a declared foreground service type.
+        if (!ForegroundServiceUtils.startSpecialUseForeground(this, TermuxConstants.TERMUX_APP_NOTIFICATION_ID, buildNotification()))
+            Logger.logWarn(LOG_TAG, "Foreground promotion refused (app in background); sessions may be killed by the system");
     }
 
     /** Make service leave foreground mode. */
     private void runStopForeground() {
-        stopForeground(true);
+        ForegroundServiceUtils.stopForegroundAndRemoveNotification(this);
     }
 
     /** Request to stop service. */
@@ -710,7 +713,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
 
         // Set pending intent to be launched when notification is clicked
         Intent notificationIntent = TermuxActivity.newInstance(this);
-        PendingIntent contentIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
+        PendingIntent contentIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
 
         // Set notification text
@@ -753,7 +756,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
 
         // Set Exit button action
         Intent exitIntent = new Intent(this, TermuxService.class).setAction(TERMUX_SERVICE.ACTION_STOP_SERVICE);
-        builder.addAction(android.R.drawable.ic_delete, res.getString(R.string.notification_action_exit), PendingIntent.getService(this, 0, exitIntent, 0));
+        builder.addAction(android.R.drawable.ic_delete, res.getString(R.string.notification_action_exit), PendingIntent.getService(this, 0, exitIntent, PendingIntent.FLAG_IMMUTABLE));
 
 
         // Set Wakelock button actions
@@ -761,7 +764,7 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         Intent toggleWakeLockIntent = new Intent(this, TermuxService.class).setAction(newWakeAction);
         String actionTitle = res.getString(wakeLockHeld ? R.string.notification_action_wake_unlock : R.string.notification_action_wake_lock);
         int actionIcon = wakeLockHeld ? android.R.drawable.ic_lock_idle_lock : android.R.drawable.ic_lock_lock;
-        builder.addAction(actionIcon, actionTitle, PendingIntent.getService(this, 0, toggleWakeLockIntent, 0));
+        builder.addAction(actionIcon, actionTitle, PendingIntent.getService(this, 0, toggleWakeLockIntent, PendingIntent.FLAG_IMMUTABLE));
 
 
         return builder.build();
@@ -779,7 +782,8 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
         if (mWakeLock == null && mTermuxSessions.isEmpty() && mTermuxTasks.isEmpty()) {
             // Exit if we are updating after the user disabled all locks with no sessions or tasks running.
             requestStopService();
-        } else {
+        } else if (NotificationUtils.hasPostNotificationsPermission(this)) {
+            // NeoTerm: without the API 33+ grant the foreground service keeps running with its notification hidden.
             ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(TermuxConstants.TERMUX_APP_NOTIFICATION_ID, buildNotification());
         }
     }
