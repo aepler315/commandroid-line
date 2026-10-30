@@ -36,8 +36,20 @@ data class TerminalViewState(
     val sessions: List<TerminalSessionState> = emptyList(),
     val activeSessionId: String = "",
     val terminalLines: List<TerminalRenderedLine> = emptyList(),
-    val lastTranslationBanner: String? = null // Shows e.g. "[CMD -> SH] dir /a -> ls -la"
-)
+    val lastTranslationBanner: String? = null, // Shows e.g. "[CMD -> SH] dir /a -> ls -la"
+    /** Character grid geometry last reported by the terminal view. */
+    val columns: Int = DEFAULT_COLUMNS,
+    val rows: Int = DEFAULT_ROWS
+) {
+    /** The session whose scrollback and prompt are currently shown, if any. */
+    val activeSession: TerminalSessionState?
+        get() = sessions.firstOrNull { it.sessionId == activeSessionId }
+
+    companion object {
+        const val DEFAULT_COLUMNS = 80
+        const val DEFAULT_ROWS = 24
+    }
+}
 
 sealed interface TerminalSideEffect {
     data class RestartImeForSession(val sessionId: String, val restoredStagedText: String) : TerminalSideEffect

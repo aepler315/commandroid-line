@@ -69,6 +69,22 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <activity
+            android:name="com.aepler.commandroid.ui.CommandroidActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|screenLayout|uiMode|keyboard|keyboardHidden|navigation"
+            android:label="@string/commandroid_app_name"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:taskAffinity="${TERMUX_PACKAGE_NAME}.commandroid"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity-alias
             android:name=".HomeActivity"
             android:exported="true"
@@ -185,6 +201,15 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs a terminal command requested by an authorized app via the RUN_COMMAND permission." />
+        </service>
+
+        <service
+            android:name="com.aepler.commandroid.data.process.TerminalSessionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Interactive terminal shell sessions" />
         </service>
 
 
