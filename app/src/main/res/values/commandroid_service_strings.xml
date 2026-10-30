@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <string name="commandroid_session_channel_name">Terminal sessions</string>
+    <string name="commandroid_session_channel_description">Keeps running Commandroid shell sessions alive</string>
+    <string name="commandroid_session_notification_title">Commandroid terminal</string>
+    <string name="commandroid_session_notification_idle">Shell sessions ready</string>
+    <plurals name="commandroid_session_notification_running">
+        <item quantity="one">%d session running a command</item>
+        <item quantity="other">%d sessions running commands</item>
+    </plurals>
+    <string name="commandroid_session_notification_stop">Stop</string>
+</resources>

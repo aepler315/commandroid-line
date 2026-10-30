@@ -2,6 +2,9 @@
 package com.aepler.commandroid.data.process
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 /** Result of one command execution inside a persistent session shell. */
@@ -32,4 +35,12 @@ interface ProcessSessionRepository {
     suspend fun closeSession(sessionId: String)
 
     fun isRunning(sessionId: String): Boolean
+
+    /** Session ids with at least one command in flight. */
+    val runningSessions: StateFlow<Set<String>> get() = NO_RUNNING_SESSIONS
+
+    /** Kills and forgets every session this repository knows about. */
+    suspend fun closeAllSessions() {}
 }
+
+private val NO_RUNNING_SESSIONS: StateFlow<Set<String>> = MutableStateFlow<Set<String>>(emptySet()).asStateFlow()
