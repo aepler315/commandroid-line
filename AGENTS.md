@@ -20,7 +20,7 @@ Do not repair already-sent input with generated deletes. Preserve direct key,
 modifier, escape, native runtime and package-manager behavior.
 
 ## Build and verification
-Use JDK 11, pinned Gradle wrapper, SDK 30/build-tools 30.0.3, NDK 22.1.7171670.
+Use JDK 17, pinned Gradle 8.7 wrapper, AGP 8.5.2, SDK 34/build-tools 34.0.0, NDK 22.1.7171670.
 Set `ANDROID_HOME` and local.properties as described in BUILD.md.
 - `./gradlew :neoterm-input:test` — pure state/policy tests.
 - `./gradlew testDebugUnitTest` — Android JVM and upstream regressions.

@@ -24,7 +24,7 @@ jobs:
       TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
     steps:
       - uses: actions/checkout@v4
-      - name: Java for Android SDK tools
+      - name: Java 17 for Android SDK tools and Gradle
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -35,20 +35,15 @@ jobs:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - name: Install pinned Android toolchain
-        run: sdkmanager 'platforms;android-30' 'build-tools;30.0.3' 'ndk;22.1.7171670'
-      - name: Java for NeoTerm and Gradle
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '11'
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;22.1.7171670'
+      - name: Lint, app JVM tests and debug APK
+        run: ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon --max-workers=2
       - name: Bootstrap tooling regressions
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -m unittest discover -s tools/bootstrap -p 'test_*.py'
-      - name: JVM tests and debug APKs
+      - name: All JVM tests and debug app/test APKs
         run: ./tools/neoterm-debug.sh
-      - name: Android lint
-        run: ./gradlew :app:lintDebug --no-daemon --max-workers=2
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,6 +59,6 @@ jobs:
         with:
           name: neoterm-standalone2-debug-${{ github.sha }}
           path: |
-            app/build/outputs/apk/debug/neoterm_standalone-debug_universal.apk
-            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error

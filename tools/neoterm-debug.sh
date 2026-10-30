@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 set -euo pipefail
 cd "$(dirname "$0")/.."
-: "${JAVA_HOME:?Set JAVA_HOME to a JDK 11 installation}"
-if [[ ! -x "$JAVA_HOME/bin/javac" ]] || [[ "$("$JAVA_HOME/bin/javac" -version 2>&1)" != *javac\ 11.* ]]; then
-    echo 'NeoTerm debug builds require JDK 11 (including javac).' >&2
+: "${JAVA_HOME:?Set JAVA_HOME to a JDK 17 installation}"
+if [[ ! -x "$JAVA_HOME/bin/javac" ]] || [[ "$("$JAVA_HOME/bin/javac" -version 2>&1)" != *javac\ 17.* ]]; then
+    echo 'NeoTerm debug builds require JDK 17 (including javac).' >&2
     exit 1
 fi
 export TERMUX_APP_VERSION_NAME=0.118.3-neoterm.standalone2
