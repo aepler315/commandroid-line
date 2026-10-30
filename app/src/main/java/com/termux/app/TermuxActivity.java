@@ -844,7 +844,8 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
 
     public static void updateTermuxActivityStyling(Context context) {
         // Make sure that terminal styling is always applied.
-        Intent stylingIntent = new Intent(TERMUX_ACTIVITY.ACTION_RELOAD_STYLE);
+        // NeoTerm: the receiver is not exported, so keep this broadcast inside the app package.
+        Intent stylingIntent = new Intent(TERMUX_ACTIVITY.ACTION_RELOAD_STYLE).setPackage(context.getPackageName());
         context.sendBroadcast(stylingIntent);
     }
 
@@ -853,7 +854,9 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
         intentFilter.addAction(TERMUX_ACTIVITY.ACTION_REQUEST_PERMISSIONS);
         intentFilter.addAction(TERMUX_ACTIVITY.ACTION_RELOAD_STYLE);
 
-        registerReceiver(mTermuxActivityBroadcastReceiver, intentFilter);
+        // NeoTerm: these actions are app-internal; SDK 34 requires an explicit export flag.
+        ContextCompat.registerReceiver(this, mTermuxActivityBroadcastReceiver, intentFilter,
+            ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     private void unregisterTermuxActivityBroadcastReceiever() {

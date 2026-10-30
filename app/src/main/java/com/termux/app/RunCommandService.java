@@ -22,6 +22,7 @@ import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE;
 import com.termux.shared.file.FileUtils;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.notification.NotificationUtils;
+import com.termux.app.utils.ForegroundServiceUtils;
 import com.termux.app.utils.PluginUtils;
 import com.termux.shared.models.ExecutionCommand;
 
@@ -230,13 +231,14 @@ public class RunCommandService extends Service {
     private void runStartForeground() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             setupNotificationChannel();
-            startForeground(TermuxConstants.TERMUX_RUN_COMMAND_NOTIFICATION_ID, buildNotification());
+            // NeoTerm: SDK 34 requires a declared foreground service type.
+            ForegroundServiceUtils.startSpecialUseForeground(this, TermuxConstants.TERMUX_RUN_COMMAND_NOTIFICATION_ID, buildNotification());
         }
     }
 
     private void runStopForeground() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            stopForeground(true);
+            ForegroundServiceUtils.stopForegroundAndRemoveNotification(this);
         }
     }
 

@@ -57,6 +57,10 @@ class InputFocusTest {
         controller.pause().stop().destroy()
     }
     @Before fun bindQueueOnlyService() {
+        // Install-time signature permission used by ContextCompat.registerReceiver(RECEIVER_NOT_EXPORTED)
+        // below API 33; Android grants it automatically, Robolectric does not.
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(app.packageName + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
         // Real service/session objects, but no JNI/Linux subprocess in JVM tests.
         val service = Robolectric.buildService(TermuxService::class.java).get()
         val constructor = TermuxSession::class.java.declaredConstructors.single()

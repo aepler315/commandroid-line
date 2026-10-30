@@ -1,10 +1,12 @@
 package com.termux.shared.notification;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Build;
 
 import androidx.annotation.Nullable;
@@ -44,6 +46,20 @@ public class NotificationUtils {
     public static NotificationManager getNotificationManager(final Context context) {
         if (context == null) return null;
         return (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+    }
+
+    /**
+     * NeoTerm: Check whether the app may post notifications. On API 33+ this requires the
+     * runtime {@link Manifest.permission#POST_NOTIFICATIONS} grant; without it
+     * {@link NotificationManager#notify(int, Notification)} is silently dropped.
+     *
+     * @param context The {@link Context} for operations.
+     * @return Returns {@code true} if notifications may be posted.
+     */
+    public static boolean hasPostNotificationsPermission(final Context context) {
+        if (context == null) return false;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true;
+        return context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
     }
 
     /**

@@ -16,11 +16,19 @@ package builds use the separate procedure in [BOOTSTRAP-BUILD.md](BOOTSTRAP-BUIL
 ## Pinned app build inputs
 
 - Stable upstream v0.118.3 (`5b657c6adf4304e5198951ce815fe0205dcac29c`).
-- JDK 11; the historical workspace used Temurin 11.0.32.1+1.
-- Gradle 7.6.4 wrapper with checked distribution SHA-256.
-- Android Gradle Plugin 7.4.2; Kotlin 1.8.22, JVM target 1.8.
-- Android SDK platform 30, build-tools 30.0.3, NDK 22.1.7171670 for PTY JNI.
-- Min SDK 24 and target SDK 28 remain upstream values.
+- JDK 17 (Temurin 17 in CI).
+- Gradle 8.7 wrapper with checked distribution SHA-256.
+- Android Gradle Plugin 8.5.2; Kotlin 1.9.24 with kapt/Hilt 2.51.1, JVM target 17.
+- Android SDK platform 34, build-tools 34.0.0, NDK 22.1.7171670 for PTY JNI.
+- Min SDK 26, compile/target SDK 34. Robolectric 4.12.2 JVM tests keep `sdk = [28]`.
+
+Target SDK 34 obligations for the upstream code: `TermuxService` and
+`RunCommandService` declare `foregroundServiceType="specialUse"` and start through
+`ServiceCompat`; PendingIntents are `FLAG_IMMUTABLE`; the activity receiver is
+`RECEIVER_NOT_EXPORTED`; notifications are posted only while
+`POST_NOTIFICATIONS` is granted. The app does not request that runtime permission
+yet, so on API 33+ the service notification stays hidden until the user enables it
+in system settings.
 
 The application ID is separate from the explicit `com.termux` Java/resource
 namespace. Keep the source namespace and native symbol names intact when changing
@@ -32,16 +40,16 @@ prefix for compatibility with existing Gradle configuration.
 Install Android command-line tools from https://developer.android.com/studio and:
 
 ```sh
-sdkmanager 'platform-tools' 'platforms;android-30' 'build-tools;30.0.3' 'ndk;22.1.7171670'
+sdkmanager 'platform-tools' 'platforms;android-34' 'build-tools;34.0.0' 'ndk;22.1.7171670'
 sdkmanager --licenses
-export JAVA_HOME=/path/to/jdk-11
+export JAVA_HOME=/path/to/jdk-17
 export ANDROID_HOME=/path/to/android-sdk
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 ./tools/neoterm-debug.sh
 ```
 
-The script selects version `0.118.3-neoterm.standalone2`, runs the JVM suite and
-builds a universal debug APK plus the instrumentation APK. Expected output paths
+The script requires JDK 17, selects version `0.118.3-neoterm.standalone2`, runs
+the JVM suite and builds a universal debug APK plus the instrumentation APK. Expected output paths
 after a successful build:
 
 - `app/build/outputs/apk/debug/neoterm_standalone-debug_universal.apk`
@@ -81,9 +89,12 @@ to make a failing coexistence test pass.
 
 ## GitHub checks
 
-Pull requests to `main` and pushes to `main` run pinned
-Android toolchain setup, the JVM suite, Python bootstrap-tool tests, lint and debug
-app/test APK builds. Reports and development APKs are workflow artifacts. The
+Pull requests to `main` and pushes to `main` run on Temurin JDK 17 with SDK
+platform 34, build-tools 34.0.0 and NDK 22.1.7171670:
+`./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace`,
+Python bootstrap-tool tests, then `tools/neoterm-debug.sh` (`:neoterm-input:test`,
+all `testDebugUnitTest`, debug and instrumentation APKs). Lint must report zero
+errors. Every APK in `app/build/outputs/apk/debug/` is uploaded. Reports and development APKs are workflow artifacts. The
 workflow grants only repository read permission and does not publish releases or
 deploy applications. Inherited upstream release-upload/JitPack workflows were
 removed from this independent repository.
@@ -109,8 +120,8 @@ and `APK-SHA256SUMS`; they provide no current standalone build evidence.
 
 ## Managed workspace setup
 
-The workspace toolchain locations are `/workspace/toolchains/jdk11` and
-`/workspace/toolchains/android-sdk`. Toolchain binaries and `local.properties` are
+The workspace toolchain locations are a JDK 17 home (for example `$HOME/tools/jdk17`) and
+`$HOME/Android/Sdk`; exporting `ANDROID_HOME` is enough. Toolchain binaries and `local.properties` are
 not committed. Inspect the current managed environment's network/proxy/CA settings
 before dependency downloads. Java does not automatically inherit `HTTP_PROXY`;
 configure Gradle and test workers with the environment's supported proxy and CA

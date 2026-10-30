@@ -1,5 +1,18 @@
 # NeoTerm changelog
 
+## commandroid spec rebuild: SDK 34 toolchain (2026-10-29)
+
+- Build on JDK 17, Gradle 8.7, AGP 8.5.2, compile/target SDK 34, build-tools
+  34.0.0 and min SDK 26. CI uses a single Temurin 17 setup and runs
+  `:app:lintDebug :app:testDebugUnitTest :app:assembleDebug`, bootstrap tool tests
+  and `tools/neoterm-debug.sh`; all debug APKs are uploaded by glob.
+- Target SDK 34 fixes in the upstream code: special-use foreground service type for
+  `TermuxService`/`RunCommandService`, immutable PendingIntents, non-exported
+  activity receiver with package-scoped style broadcasts, and notifications posted
+  only with `POST_NOTIFICATIONS`. `:app:lintDebug` reports 0 errors.
+- The 220 JVM tests pass on Robolectric 4.12.2 (`sdk = [28]`). Runtime permission
+  prompting for notifications and on-device API 34 checks remain pending.
+
 ## 0.118.3-neoterm.standalone2 (2026-10-29)
 
 - Handle unmodified physical Enter before the IME in AUTO/direct and TERMINAL.
