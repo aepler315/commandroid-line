@@ -30,6 +30,21 @@ Target SDK 34 obligations for the upstream code: `TermuxService` and
 yet, so on API 33+ the service notification stays hidden until the user enables it
 in system settings.
 
+Further consequences of target SDK 34:
+
+- Foreground promotion can be refused when a plugin starts `RunCommandService` while
+  the app is in the background (API 31+). The services keep running as plain
+  services, and a refused `TermuxService` start is reported as a plugin error, so
+  the process no longer crashes.
+- W^X (API 29+): SELinux denies `execve()` of files in the app's data directory.
+  `RUN_COMMAND` executables and the `~/bin/termux-file-editor` /
+  `termux-url-opener` hooks are therefore started through their shebang
+  interpreter, or through `/system/bin/sh` when that interpreter is not a system
+  binary. ELF binaries under the app's data directory cannot run.
+- Shared storage: `WRITE_EXTERNAL_STORAGE` only applies up to API 29. On API 30+,
+  `termux-setup-storage` and "save to file" open the "All files access" settings
+  screen (`MANAGE_EXTERNAL_STORAGE`) instead.
+
 The application ID is separate from the explicit `com.termux` Java/resource
 namespace. Keep the source namespace and native symbol names intact when changing
 app identity. Build environment variable names still use the upstream `TERMUX_`

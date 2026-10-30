@@ -52,4 +52,11 @@ class TerminalKeyEncoderTest {
         assertFalse(TerminalKeyEncoder.isInterrupt('c'.code, ctrl = false))
         assertFalse(TerminalKeyEncoder.isInterrupt('d'.code, ctrl = true))
     }
+
+    @org.junit.Test
+    fun invalidCodePointsAreNotEncoded() {
+        org.junit.Assert.assertNull(TerminalKeyEncoder.encodeChar(0x00B4 or android.view.KeyCharacterMap.COMBINING_ACCENT, ctrl = false, alt = true))
+        org.junit.Assert.assertNull(TerminalKeyEncoder.encodeChar(0xD800, ctrl = false, alt = false))
+        org.junit.Assert.assertNull(TerminalKeyEncoder.encodeChar(0x110000, ctrl = false, alt = false))
+    }
 }

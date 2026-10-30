@@ -214,10 +214,19 @@ public class RunCommandService extends Service {
         }
 
         // Start TERMUX_SERVICE and pass it execution intent
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            this.startForegroundService(execIntent);
-        } else {
-            this.startService(execIntent);
+        // NeoTerm: at targetSdk 31+ starting a foreground service from the background throws
+        // (ForegroundServiceStartNotAllowedException / IllegalStateException). Report a plugin
+        // error instead of crashing the whole process and every live session.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                this.startForegroundService(execIntent);
+            } else {
+                this.startService(execIntent);
+            }
+        } catch (IllegalStateException | SecurityException e) {
+            errmsg = "Could not start " + TermuxConstants.TERMUX_APP_NAME + " service from the background: " + e.getMessage();
+            executionCommand.setStateFailed(Errno.ERRNO_FAILED.getCode(), errmsg);
+            PluginUtils.processPluginExecutionCommandError(this, LOG_TAG, executionCommand, false);
         }
 
         return stopService();
@@ -232,7 +241,8 @@ public class RunCommandService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             setupNotificationChannel();
             // NeoTerm: SDK 34 requires a declared foreground service type.
-            ForegroundServiceUtils.startSpecialUseForeground(this, TermuxConstants.TERMUX_RUN_COMMAND_NOTIFICATION_ID, buildNotification());
+            if (!ForegroundServiceUtils.startSpecialUseForeground(this, TermuxConstants.TERMUX_RUN_COMMAND_NOTIFICATION_ID, buildNotification()))
+                Logger.logWarn(LOG_TAG, "Foreground promotion refused; continuing as a background service");
         }
     }
 

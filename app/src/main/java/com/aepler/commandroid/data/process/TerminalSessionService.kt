@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.aepler.commandroid.ui.CommandroidActivity
 import com.termux.R
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,13 @@ class TerminalSessionService : Service() {
     private var idleStopJob: Job? = null
     private var lastRunningCount = 0
 
+    /**
+     * True once onStartCommand ran. A service that only exists through bindService() is
+     * destroyed as soon as its last client unbinds, whatever this class decides, so running
+     * commands require the started state.
+     */
+    private var startRequested = false
+
     val sessions: ProcessSessionRepository get() = repository
 
     override fun onCreate() {
@@ -57,6 +65,7 @@ class TerminalSessionService : Service() {
         scope.launch {
             repository.runningSessions.collect { running ->
                 lastRunningCount = running.size
+                if (running.isNotEmpty()) ensureStarted()
                 if (isForeground) updateNotification()
                 scheduleIdleCheck()
             }
@@ -64,6 +73,7 @@ class TerminalSessionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startRequested = true
         if (intent?.action == ACTION_STOP) {
             // Promote first: a startForegroundService() call must always be answered.
             promoteToForeground()
@@ -111,7 +121,15 @@ class TerminalSessionService : Service() {
         }
     }
 
+    /** Moves a bound-only instance (recreated by BIND_AUTO_CREATE) into the started state. */
+    private fun ensureStarted() {
+        if (startRequested) return
+        // May be refused while the app is in the background; the activity also starts it in onStart.
+        runCatching { startService(Intent(this, TerminalSessionService::class.java)) }
+    }
+
     private fun stopNow() {
+        startRequested = false
         if (isForeground) {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             isForeground = false
@@ -181,17 +199,18 @@ class TerminalSessionService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, getString(R.string.commandroid_session_notification_stop), stopIntent)
-        packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
-            launch.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            builder.setContentIntent(
-                PendingIntent.getActivity(
-                    this,
-                    REQUEST_OPEN,
-                    launch,
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                )
+        // Explicit: the package launch intent resolves to the legacy TermuxActivity, not the
+        // Commandroid screen that owns these shells.
+        val open = Intent(this, CommandroidActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        builder.setContentIntent(
+            PendingIntent.getActivity(
+                this,
+                REQUEST_OPEN,
+                open,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-        }
+        )
         return builder.build()
     }
 

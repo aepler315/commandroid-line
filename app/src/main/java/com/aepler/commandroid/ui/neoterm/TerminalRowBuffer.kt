@@ -90,6 +90,14 @@ class TerminalRowBuffer(
         size = 0
     }
 
+    /** Drops the newest [count] rows (e.g. a trailing partial line that is about to be replaced). */
+    fun removeLastRows(count: Int) {
+        require(count in 0..size) { "cannot remove $count of $size rows" }
+        size -= count
+        // A row that ended a soft-wrapped line now ends the buffer; it no longer continues.
+        if (count > 0 && size > 0) this[size - 1].wrapped = false
+    }
+
     /**
      * Appends one logical line (embedded '\n' starts further logical lines), wrapping at [columns].
      * Returns the number of rows produced.

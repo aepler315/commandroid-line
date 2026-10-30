@@ -83,4 +83,36 @@ class DefaultProcessSessionRepositoryTest {
         repository.closeSession("k")
         assertFalse(repository.isRunning("k"))
     }
+
+    @Test
+    fun slowCollectorLosesNoChunks() = runBlocking {
+        val total = 3_000
+        val fake = object : TerminalProcessManager {
+            override suspend fun startProcess(
+                sessionId: String, posixCommand: String, workingDir: File, environment: Map<String, String>
+            ) = kotlinx.coroutines.flow.flow {
+                repeat(total) { emit(TerminalOutputChunk(sessionId, "$it\n", isStdErr = false)) }
+            }
+            override suspend fun writeStdin(sessionId: String, inputBytes: ByteArray) {}
+            override suspend fun killProcess(sessionId: String) = false
+            override fun isAlive(sessionId: String) = false
+        }
+        val slowRepository = DefaultProcessSessionRepository(fake, scope)
+        withTimeout(20_000) {
+            val collected = scope.async {
+                var count = 0
+                slowRepository.output.transformWhile {
+                    count++
+                    if (count % 100 == 0) Thread.sleep(1) // slower than the producer
+                    emit(it)
+                    count < total
+                }.toList()
+            }
+            Thread.sleep(100) // let the collector subscribe
+            slowRepository.execute("slow", "flood", File("/tmp"), emptyMap())
+            val chunks = collected.await()
+            assertEquals(total, chunks.size)
+            assertEquals("${total - 1}\n", chunks.last().text)
+        }
+    }
 }

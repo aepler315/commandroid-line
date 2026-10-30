@@ -73,4 +73,36 @@ class TerminalReducerTest {
         assertFalse(TerminalReducer.isDirectoryChange("dir", "ls -l", null))
         assertFalse(TerminalReducer.isDirectoryChange("cdrom", "cdrom", null))
     }
+
+    private fun out(model: TerminalModel, text: String, err: Boolean = false) =
+        TerminalReducer.appendOutput(model, TerminalOutputChunk("session-1", text, err))
+
+    @Test
+    fun carriageReturnsOverwriteInsteadOfAccumulating() {
+        var model = TerminalReducer.createSession(TerminalModel(), root)
+        model = out(model, "10%\r20%\r")
+        model = out(model, "30%")
+        assertEquals("30%", model.partialOutput["session-1"]!!.stdout)
+        model = out(model, "\r100%\r\n")
+        assertEquals("100%", model.linesBySession["session-1"]!!.last().text)
+        assertEquals("", model.partialOutput["session-1"]!!.stdout)
+    }
+
+    @Test
+    fun unterminatedOutputIsBounded() {
+        var model = TerminalReducer.createSession(TerminalModel(), root)
+        repeat(100) { model = out(model, "x".repeat(1000)) }
+        assertTrue(model.partialOutput["session-1"]!!.stdout.length <= TerminalReducer.MAX_PARTIAL_CHARS)
+        val committed = model.linesBySession["session-1"]!!.sumOf { it.text.length }
+        assertEquals(100_000, committed + model.partialOutput["session-1"]!!.stdout.length)
+    }
+
+    @Test
+    fun interruptEchoFollowsPendingPartialLine() {
+        var model = TerminalReducer.createSession(TerminalModel(), root)
+        model = out(model, "Password: ")
+        model = TerminalReducer.echoInterrupt(model, "session-1")
+        assertEquals("Password: ^C", model.linesBySession["session-1"]!!.last().text)
+        assertTrue(model.partialOutput["session-1"] == null)
+    }
 }

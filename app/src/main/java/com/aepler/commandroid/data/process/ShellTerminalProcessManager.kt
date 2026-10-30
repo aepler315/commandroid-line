@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -22,6 +23,7 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,10 +33,19 @@ import javax.inject.Singleton
  * (started with [ProcessBuilder], no PTY).
  *
  * Every submitted command is framed as
- * `command eval '<cmd>'; printf '\n__CMDL_DONE_<nonce>__ %s %s\n' "$?" "$PWD"; printf '__CMDL_E_<nonce>__\n' >&2`
+ * `command eval '<cmd>'; printf '\n__CMDL_DONE_<nonce>__ %s %s\n' "$?" "$PWD" >&8; printf '__CMDL_E_<nonce>__\n' >&9; <drain>`
  * so the shell itself reports exit status and working directory. Sentinels are stripped from
  * the output; commands of one session run strictly in submission order. Because there is no
  * PTY, Ctrl-C / Ctrl-D written to stdin are plain bytes; [killProcess] is the escape hatch.
+ *
+ * Isolation of the command channel:
+ * - fds 8/9 are private duplicates of the original stdout/stderr pipes taken when the shell
+ *   starts, so a command that redirects the shell's own fd 1/2 (`exec 2>&1`, `exec >/dev/null`)
+ *   cannot swallow or misroute a sentinel.
+ * - User stdin shares the pipe the shell reads commands from. After each command the shell runs
+ *   `<drain>`, which discards every line up to a per-session sync marker that is written in
+ *   front of the next command. Input the command never read is therefore thrown away instead of
+ *   being executed as shell commands, or glued onto the next framed line.
  */
 @Singleton
 class ShellTerminalProcessManager @Inject constructor(
@@ -42,6 +53,15 @@ class ShellTerminalProcessManager @Inject constructor(
 ) : TerminalProcessManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Unbounded threads for the per-shell blocking stdout/stderr readers and exit waiter. They
+     * hold a thread for the life of each shell, so running them on [Dispatchers.IO] (64 threads)
+     * would let ~21 sessions starve every other IO call, including [killProcess].
+     */
+    private val blockingDispatcher = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "commandroid-shell-io").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<String, ShellSession>()
     private val sessionsLock = Mutex()
 
@@ -88,6 +108,8 @@ class ShellTerminalProcessManager @Inject constructor(
     override suspend fun writeStdin(sessionId: String, inputBytes: ByteArray) {
         val session = sessions[sessionId] ?: return
         if (inputBytes.isEmpty()) return
+        // With no command in flight the bytes could only reach the idle shell's command parser.
+        if (session.current == null) return
         session.write(inputBytes)
     }
 
@@ -213,15 +235,21 @@ class ShellTerminalProcessManager @Inject constructor(
             stderrDone.complete(Unit)
         }
 
-        fun framedInput(knownPwd: File): ByteArray {
+        /**
+         * @param syncMarker per-session marker that ends the drain loop of the previous command;
+         *   null for the first command of a shell (nothing to drain yet).
+         */
+        fun framedInput(knownPwd: File, syncMarker: String?, nextSyncMarker: String): ByteArray {
             val cd = if (workingDir.isDirectory && !sameDir(workingDir, knownPwd)) {
                 "cd -- ${shQuote(workingDir.path)} 2>/dev/null; "
             } else {
                 ""
             }
-            val line = cd + "command eval ${shQuote(text)}; " +
-                "printf '\\n__CMDL_DONE_%s__ %s %s\\n' '$nonce' \"\$?\" \"\$PWD\"; " +
-                "printf '__CMDL_E_%s__\\n' '$nonce' >&2\n"
+            val sync = if (syncMarker == null) "" else "\n$syncMarker\n"
+            val line = sync + cd + "command eval ${shQuote(text)}; " +
+                "printf '\\n__CMDL_DONE_%s__ %s %s\\n' '$nonce' \"\$?\" \"\$PWD\" >&$SENTINEL_STDOUT_FD; " +
+                "printf '__CMDL_E_%s__\\n' '$nonce' >&$SENTINEL_STDERR_FD; " +
+                "while IFS= read -r __cmdl_l; do [ \"\$__cmdl_l\" = '$nextSyncMarker' ] && break; done\n"
             return line.toByteArray(Charsets.UTF_8)
         }
     }
@@ -234,15 +262,19 @@ class ShellTerminalProcessManager @Inject constructor(
         val queue = Channel<PendingCommand>(Channel.UNLIMITED)
         private val stdinLock = Mutex()
 
+        /** Marker the shell's drain loop is waiting for; null until the first command was sent. */
+        private var pendingSyncMarker: String? = null
+        private val syncMarker = "__CMDL_SYNC_${UUID.randomUUID().toString().replace("-", "")}__"
+
         @Volatile var current: PendingCommand? = null
         @Volatile var dead = false
         @Volatile var pid: Int? = null
         @Volatile var lastPwd: File = initialDir
 
         fun launch() {
-            scope.launch { readStream(process.inputStream, isStdErr = false) }
-            scope.launch { readStream(process.errorStream, isStdErr = true) }
-            scope.launch {
+            scope.launch(blockingDispatcher) { readStream(process.inputStream, isStdErr = false) }
+            scope.launch(blockingDispatcher) { readStream(process.errorStream, isStdErr = true) }
+            scope.launch(blockingDispatcher) {
                 runInterruptible { process.waitFor() }
                 delay(config.exitGraceMillis)
                 markDead()
@@ -271,11 +303,14 @@ class ShellTerminalProcessManager @Inject constructor(
         }
 
         private suspend fun dispatch() {
+            // Private copies of the sentinel pipes (see the class documentation).
+            write("exec $SENTINEL_STDOUT_FD>&1 $SENTINEL_STDERR_FD>&2\n".toByteArray(Charsets.UTF_8))
             for (command in queue) {
                 if (!dead) {
                     current = command
                     if (dead) command.forceStreamsDone()
-                    write(command.framedInput(lastPwd))
+                    write(command.framedInput(lastPwd, pendingSyncMarker, syncMarker))
+                    pendingSyncMarker = syncMarker
                     command.stdoutDone.await()
                     command.stderrDone.await()
                     current = null
@@ -423,6 +458,8 @@ class ShellTerminalProcessManager @Inject constructor(
         private const val PID_LINE_MAX = 32
         private const val KILL_WAIT_MILLIS = 2_000L
         private const val BACKGROUND_BUFFER = 256
+        private const val SENTINEL_STDOUT_FD = 8
+        private const val SENTINEL_STDERR_FD = 9
 
         internal fun shQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 

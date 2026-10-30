@@ -44,6 +44,9 @@ object TerminalReducer {
     const val SESSION_ID_PREFIX = "session-"
     const val BANNER_PREFIX = "[CMD -> SH]"
 
+    /** Longest unterminated output kept per stream before it is committed as a line anyway. */
+    const val MAX_PARTIAL_CHARS = 16 * 1024
+
     fun toViewState(model: TerminalModel): TerminalViewState {
         val active = model.activeSessionId
         val committed = model.linesBySession[active].orEmpty()
@@ -118,9 +121,18 @@ object TerminalReducer {
         return trimmed.copy(activeSessionId = remaining[index.coerceAtMost(remaining.lastIndex)].sessionId)
     }
 
-    fun updateStagedInput(model: TerminalModel, stagedText: String, composingRange: IntRange?): TerminalModel =
+    fun updateStagedInput(
+        model: TerminalModel,
+        stagedText: String,
+        composingRange: IntRange?,
+        cursorIndex: Int? = null
+    ): TerminalModel =
         updateSession(model, model.activeSessionId) {
-            it.copy(stagedInput = stagedText, composingRange = composingRange)
+            it.copy(
+                stagedInput = stagedText,
+                composingRange = composingRange,
+                cursorIndex = cursorIndex?.coerceIn(0, stagedText.length)
+            )
         }
 
     fun resize(model: TerminalModel, columns: Int, rows: Int): TerminalModel =
@@ -163,20 +175,45 @@ object TerminalReducer {
         val partial = model.partialOutput[sessionId] ?: PartialOutput()
         val pending = (if (chunk.isStdErr) partial.stderr else partial.stdout) + chunk.text
         val segments = pending.split('\n')
-        val remainder = segments.last()
         val kind = if (chunk.isStdErr) TerminalLineKind.STDERR else TerminalLineKind.STDOUT
-        val complete = segments.dropLast(1).map { TerminalRenderedLine(sessionId, it.removeSuffix("\r"), kind) }
+        val complete = segments.dropLast(1).mapTo(ArrayList()) { TerminalRenderedLine(sessionId, overwriteCarriageReturns(it), kind) }
+        var remainder = keepAfterCarriageReturn(segments.last())
+        // Bound the unterminated tail (progress output without newlines would otherwise grow forever).
+        while (remainder.length > MAX_PARTIAL_CHARS) {
+            var cut = MAX_PARTIAL_CHARS
+            if (Character.isHighSurrogate(remainder[cut - 1])) cut--
+            complete += TerminalRenderedLine(sessionId, remainder.substring(0, cut), kind)
+            remainder = remainder.substring(cut)
+        }
         val updatedPartial = if (chunk.isStdErr) partial.copy(stderr = remainder) else partial.copy(stdout = remainder)
         return appendLines(model, sessionId, complete, maxLines)
             .copy(partialOutput = model.partialOutput + (sessionId to updatedPartial))
+    }
+
+    /** A completed line shows what a terminal would: the text after its last carriage return. */
+    private fun overwriteCarriageReturns(line: String): String {
+        val trimmed = line.removeSuffix("\r")
+        val cr = trimmed.lastIndexOf('\r')
+        return if (cr < 0) trimmed else trimmed.substring(cr + 1)
+    }
+
+    /**
+     * Unterminated text keeps only what follows its last carriage return. A trailing '\r' is kept
+     * (with the text before it) because it may be the first half of a "\r\n" split across chunks.
+     */
+    private fun keepAfterCarriageReturn(text: String): String {
+        val searchEnd = if (text.endsWith('\r')) text.length - 2 else text.length - 1
+        if (searchEnd < 0) return text
+        val cr = text.lastIndexOf('\r', searchEnd)
+        return if (cr < 0) text else text.substring(cr + 1)
     }
 
     /** Commits any unterminated output of [sessionId] as full lines. */
     fun flushPartialOutput(model: TerminalModel, sessionId: String): TerminalModel {
         val partial = model.partialOutput[sessionId] ?: return model
         val lines = buildList {
-            if (partial.stdout.isNotEmpty()) add(TerminalRenderedLine(sessionId, partial.stdout, TerminalLineKind.STDOUT))
-            if (partial.stderr.isNotEmpty()) add(TerminalRenderedLine(sessionId, partial.stderr, TerminalLineKind.STDERR))
+            if (partial.stdout.isNotEmpty()) add(TerminalRenderedLine(sessionId, overwriteCarriageReturns(partial.stdout), TerminalLineKind.STDOUT))
+            if (partial.stderr.isNotEmpty()) add(TerminalRenderedLine(sessionId, overwriteCarriageReturns(partial.stderr), TerminalLineKind.STDERR))
         }
         return appendLines(model, sessionId, lines).copy(partialOutput = model.partialOutput - sessionId)
     }
@@ -184,17 +221,37 @@ object TerminalReducer {
     /** Appends the submitted line, prefixed with the CMD prompt unless it is stdin for a running job. */
     fun echoCommand(model: TerminalModel, sessionId: String, rawCommand: String, withPrompt: Boolean = true): TerminalModel {
         val session = model.session(sessionId) ?: return model
-        val text = when {
-            !withPrompt -> rawCommand
-            rawCommand.isEmpty() -> session.windowsPromptDisplay
-            else -> "${session.windowsPromptDisplay} $rawCommand"
+        if (!withPrompt) return echoAfterPartialOutput(model, sessionId, rawCommand)
+        val text = if (rawCommand.isEmpty()) session.windowsPromptDisplay else "${session.windowsPromptDisplay} $rawCommand"
+        return appendLines(
+            flushPartialOutput(model, sessionId),
+            sessionId,
+            listOf(TerminalRenderedLine(sessionId, text, TerminalLineKind.COMMAND_ECHO))
+        )
+    }
+
+    /** Appends the "^C" a terminal shows when the running job is interrupted. */
+    fun echoInterrupt(model: TerminalModel, sessionId: String): TerminalModel =
+        echoAfterPartialOutput(model, sessionId, "^C")
+
+    /**
+     * Echoes [text] the way a terminal does: after a pending unterminated stdout line such as an
+     * interactive prompt ("Name: "), on the same line, then ends that line. Pending stderr is
+     * committed first so nothing is reordered.
+     */
+    private fun echoAfterPartialOutput(model: TerminalModel, sessionId: String, text: String): TerminalModel {
+        if (model.session(sessionId) == null) return model
+        val partial = model.partialOutput[sessionId] ?: PartialOutput()
+        val lines = buildList {
+            if (partial.stderr.isNotEmpty()) add(TerminalRenderedLine(sessionId, overwriteCarriageReturns(partial.stderr), TerminalLineKind.STDERR))
+            add(TerminalRenderedLine(sessionId, overwriteCarriageReturns(partial.stdout) + text, TerminalLineKind.COMMAND_ECHO))
         }
-        return appendLines(model, sessionId, listOf(TerminalRenderedLine(sessionId, text, TerminalLineKind.COMMAND_ECHO)))
+        return appendLines(model, sessionId, lines).copy(partialOutput = model.partialOutput - sessionId)
     }
 
     /** Clears the staged prompt of [sessionId] after its line was submitted. */
     fun clearStagedInput(model: TerminalModel, sessionId: String): TerminalModel =
-        updateSession(model, sessionId) { it.copy(stagedInput = "", composingRange = null) }
+        updateSession(model, sessionId) { it.copy(stagedInput = "", composingRange = null, cursorIndex = null) }
 
     fun bannerText(originalCommand: String, posixCommand: String, explanation: String): String {
         val trimmed = explanation.trim()

@@ -32,20 +32,29 @@ internal object PosixQuoting {
         if (style == VarStyle.REQUIRED) "\${$name:?}" else "\${$name}"
 
     /**
-     * @param allowGlob emit unquoted `*` and `?` bare so the shell expands them (CMD wildcard
-     *   semantics); quoted text never globs.
+     * @param allowGlob emit `*` and `?` bare so the shell expands them (CMD wildcard semantics:
+     *   commands such as dir and del expand wildcards inside quotes too, as in
+     *   `dir "C:\My Docs\*.txt"`). Everything else, quoted or not, is single-quoted as needed;
+     *   quoted variables stay double-quoted. Without it, quoted text never globs.
      */
     fun render(
         pieces: List<Piece>,
         style: VarStyle = VarStyle.QUOTED,
         allowGlob: Boolean = false
     ): String {
-        if (pieces.any { it.quoted }) return renderQuoted(pieces, style)
+        if (pieces.any { it.quoted }) {
+            val globs = allowGlob && pieces.any { it is Piece.Lit && (it.text.contains('*') || it.text.contains('?')) }
+            if (!globs) return renderQuoted(pieces, style)
+            if (pieces.none { it is Piece.Var }) {
+                return renderUnquotedLiteral(pieces.joinToString("") { (it as Piece.Lit).text }, allowGlob = true)
+                    .ifEmpty { "''" }
+            }
+        }
         val out = StringBuilder()
         for (piece in pieces) {
             when (piece) {
                 is Piece.Var -> out.append(
-                    if (style == VarStyle.BARE) varRef(piece.name, style)
+                    if (style == VarStyle.BARE && !piece.quoted) varRef(piece.name, style)
                     else "\"" + varRef(piece.name, style) + "\""
                 )
                 is Piece.Lit -> out.append(renderUnquotedLiteral(piece.text, allowGlob))

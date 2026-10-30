@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.aepler.commandroid.data.process
 
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -195,6 +198,74 @@ class ShellTerminalProcessManagerTest {
         manager.writeStdin("s1", "abc\n".toByteArray())
         val chunks = withTimeout(TIMEOUT) { execution.output.toList() }
         assertEquals("got:abc\n", chunks.stdout())
+    }
+
+    @Test
+    fun unreadStdinIsDiscardedInsteadOfExecutedByTheIdleShell() = runBlocking {
+        val background = mutableListOf<TerminalOutputChunk>()
+        val collector = launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+            manager.backgroundOutput.collect { synchronized(background) { background += it } }
+        }
+        try {
+            started += "s1"
+            val sleeping = manager.startCommand("s1", "sleep 0.5", tmp, emptyMap())
+            delay(150)
+            // A typed answer plus an arrow-key escape sequence the command never reads.
+            manager.writeStdin("s1", "y\n\u001b[A".toByteArray())
+            withTimeout(TIMEOUT) {
+                sleeping.output.toList()
+                assertEquals(0, sleeping.completion.await()!!.exitCode)
+            }
+            val (chunks, completion) = run("s1", "echo hi")
+            assertEquals("hi\n", chunks.stdout())
+            assertEquals("", chunks.stderr())
+            assertEquals(0, completion!!.exitCode)
+            delay(100)
+            val stray = synchronized(background) { background.joinToString("") { it.text } }
+            assertFalse("stale input was executed: $stray", "not found" in stray)
+        } finally {
+            collector.cancel()
+        }
+    }
+
+    @Test
+    fun stdinWithoutRunningCommandIsDropped() = runBlocking {
+        run("s1", "true")
+        manager.writeStdin("s1", "echo leaked\n".toByteArray())
+        val (chunks, completion) = run("s1", "echo ok")
+        assertEquals("ok\n", chunks.stdout())
+        assertEquals(0, completion!!.exitCode)
+    }
+
+    @Test
+    fun redirectingTheShellsOwnFdsDoesNotHangTheSession() = runBlocking {
+        val background = mutableListOf<TerminalOutputChunk>()
+        val collector = launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+            manager.backgroundOutput.collect { synchronized(background) { background += it } }
+        }
+        try {
+            val (_, merged) = run("s1", "exec 2>&1; echo merged")
+            assertEquals(0, merged!!.exitCode)
+            val (_, silenced) = run("s1", "exec >/dev/null; echo hidden")
+            assertEquals(0, silenced!!.exitCode)
+            val (_, after) = run("s1", "true")
+            assertEquals(0, after!!.exitCode)
+            delay(100)
+            assertTrue(synchronized(background) { background.none { "__CMDL_" in it.text } })
+        } finally {
+            collector.cancel()
+        }
+    }
+
+    @Test
+    fun manySessionsDoNotStarveIo() = runBlocking {
+        // Each shell pins blocking reader threads; they must not come from the shared IO pool.
+        val ids = (1..30).map { "many$it" }
+        for (id in ids) {
+            val (chunks, _) = run(id, "echo $id")
+            assertEquals("$id\n", chunks.stdout())
+        }
+        withTimeout(TIMEOUT) { assertTrue(manager.killProcess(ids.first())) }
     }
 
     @Test

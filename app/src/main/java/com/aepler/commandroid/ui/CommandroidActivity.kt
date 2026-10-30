@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.view.HapticFeedbackConstants
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -68,9 +69,14 @@ class CommandroidActivity : ComponentActivity() {
         inputController = NeoTermInputController(
             inputViewProvider = { terminalView },
             onStagedBufferChanged = { stagedText, composingRange ->
-                viewModel.dispatch(TerminalIntent.UpdateStagedInput(stagedText, composingRange))
+                viewModel.dispatch(
+                    TerminalIntent.UpdateStagedInput(stagedText, composingRange, inputController.stagedCursorIndex)
+                )
             },
-            onCommitLine = { command -> viewModel.dispatch(TerminalIntent.SubmitCommand(command)) },
+            onCommitLine = { command ->
+                // Bound to the session the line was staged in (see SubmitCommand.sessionId).
+                viewModel.dispatch(TerminalIntent.SubmitCommand(command, inputController.stagedSessionId))
+            },
             onControlKeyIntercepted = ::onControlKey
         )
         terminalView.inputController = inputController
@@ -99,12 +105,14 @@ class CommandroidActivity : ComponentActivity() {
             }
         }
 
-        startSessionService()
         if (savedInstanceState == null) requestNotificationPermissionIfNeeded()
     }
 
     override fun onStart() {
         super.onStart()
+        // Started on every return to the foreground: after an idle stopSelf(), BIND_AUTO_CREATE
+        // alone would recreate a bound-only service that dies on the next unbind mid-command.
+        startSessionService()
         serviceBound = runCatching {
             bindService(Intent(this, TerminalSessionService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
         }.getOrDefault(false)
@@ -122,7 +130,12 @@ class CommandroidActivity : ComponentActivity() {
         val active = state.activeSession ?: return
         if (active.sessionId != imeSessionId) restartIme(active.sessionId, active.stagedInput)
         terminalView.submitLines(state.terminalLines)
-        terminalView.setPromptState("${active.windowsPromptDisplay} ", active.stagedInput, active.composingRange)
+        terminalView.setPromptState(
+            "${active.windowsPromptDisplay} ",
+            active.stagedInput,
+            active.composingRange,
+            active.cursorIndex ?: active.stagedInput.length
+        )
         val index = state.sessions.indexOf(active)
         sessionTitle.text = getString(R.string.commandroid_session_title, active.title, index + 1, state.sessions.size)
     }
@@ -152,7 +165,10 @@ class CommandroidActivity : ComponentActivity() {
         if (isModifierKeyCode(keyCode)) return false
         val armed = modifierBar.isCtrlActive || modifierBar.isAltActive
         if (!event.isCtrlPressed && !event.isAltPressed && !armed) return false
-        val codePoint = event.getUnicodeChar(0)
+        var codePoint = event.getUnicodeChar(0)
+        // Dead keys report the accent OR'd with COMBINING_ACCENT (a negative Int): use the accent.
+        if (codePoint and KeyCharacterMap.COMBINING_ACCENT != 0) codePoint = codePoint and KeyCharacterMap.COMBINING_ACCENT_MASK
+        if (codePoint != 0 && !NeoTermInputController.isInsertableCodePoint(codePoint)) return false
         if (codePoint == 0) {
             // Not a character: let bar modifiers apply to the matching terminal key, if any.
             val key = KEY_FOR_KEYCODE[keyCode] ?: return false
@@ -180,9 +196,13 @@ class CommandroidActivity : ComponentActivity() {
     }
 
     private fun sendModifiedChar(codePoint: Int, ctrl: Boolean, alt: Boolean) {
+        if (!NeoTermInputController.isInsertableCodePoint(codePoint)) return
         val active = viewModel.state.value.activeSession ?: return
         if (TerminalKeyEncoder.isInterrupt(codePoint, ctrl)) {
+            // Running: interrupt the job. Idle: the VM echoes "^C" and abandons the staged line
+            // (it does not kill the persistent shell), so the controller's buffer is cleared too.
             viewModel.dispatch(TerminalIntent.KillActiveProcess(active.sessionId))
+            if (!active.isProcessRunning) inputController.clearStagedText()
             return
         }
         if (!active.isProcessRunning) {

@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.PowerManager;
 import android.provider.Settings;
 
@@ -109,6 +110,40 @@ public class PermissionUtils {
         Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
         intent.setData(Uri.parse("package:" + activity.getPackageName()));
         activity.startActivityForResult(intent, requestCode);
+    }
+
+    /**
+     * NeoTerm: whether the app may write to shared storage. At targetSdk 30+ scoped storage ignores
+     * WRITE_EXTERNAL_STORAGE (and at 33+ it is never granted), so on API 30+ this checks "All files
+     * access" (MANAGE_EXTERNAL_STORAGE) instead.
+     */
+    public static boolean checkStoragePermission(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            return Environment.isExternalStorageManager();
+        return checkPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE);
+    }
+
+    /**
+     * NeoTerm: request shared storage access. On API 30+ this opens the "All files access" settings
+     * screen (the result arrives in {@code onActivityResult}/{@code onResume}, not in
+     * {@code onRequestPermissionsResult}); below it requests WRITE_EXTERNAL_STORAGE.
+     */
+    public static void requestStoragePermission(Activity activity, int requestCode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:" + activity.getPackageName()));
+            try {
+                activity.startActivityForResult(intent, requestCode);
+            } catch (Exception e) {
+                try {
+                    activity.startActivityForResult(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION), requestCode);
+                } catch (Exception e2) {
+                    Logger.logStackTraceWithMessage(LOG_TAG, "Failed to open all files access settings", e2);
+                }
+            }
+            return;
+        }
+        requestPermission(activity, android.Manifest.permission.WRITE_EXTERNAL_STORAGE, requestCode);
     }
 
 }

@@ -62,11 +62,29 @@ private class LineTranslation(
     private var runningDirectory: String? = normalizeAbsolute(currentDirectory.path)
     private var directoryChanged = false
 
+    /**
+     * Every directory a later segment may run in, for the deletion guard. A `cd` whose execution
+     * is not guaranteed to gate what follows (`cd x & rd ...`, `cd x || rd ...`, `a || cd x && ...`,
+     * pipes) leaves the previous directories possible as well.
+     */
+    private var guardDirectories: List<String?> = listOf(runningDirectory)
+
+    /** Whether a `cd` in the segment being translated certainly took effect for what follows it. */
+    private var cdCertain = true
+
     fun run(): TranslationResult {
         val chain = CmdLexer.parse(original)
         if (chain.segments.size == 1) builtIn(chain.segments[0])?.let { return it }
 
-        val outputs = chain.segments.map { translateSegment(it, chained = chain.segments.size > 1) }
+        val outputs = chain.segments.mapIndexed { index, segment ->
+            val before = chain.operators.getOrNull(index - 1)
+            val after = chain.operators.getOrNull(index)
+            // After `a || cd x` the cd may have been skipped; after `cd x;`/`cd x |`/`cd x ||` the
+            // next segment runs even if cd failed (or ran in a pipeline subshell).
+            cdCertain = (before == null || before == ChainOperator.AND || before == ChainOperator.SEQUENCE) &&
+                (after == null || after == ChainOperator.AND)
+            translateSegment(segment, chained = chain.segments.size > 1)
+        }
         if (outputs.none { it.translated }) {
             return TranslationResult.Translated(original, original, null)
         }
@@ -247,8 +265,17 @@ private class LineTranslation(
         command: String,
         args: List<CmdWord>,
         known: Set<String>,
-        valued: Set<String> = emptySet()
+        valued: Set<String> = emptySet(),
+        gluedValues: Map<String, Regex> = emptyMap()
     ): ParsedArgs {
+        // `/ad`, `/a-d`, `/od`: a one-letter switch with its value glued on (no colon). Only
+        // accepted when the value fits [gluedValues], so paths like /apex or /odm stay paths.
+        fun split(name: String): Pair<String, String?> {
+            if (name in known || name.length <= 1) return name to null
+            val head = name.substring(0, 1)
+            val rest = name.substring(1)
+            return if (head in known && gluedValues[head]?.matches(rest) == true) head to rest else name to null
+        }
         val flags = mutableListOf<Flag>()
         val positionals = mutableListOf<CmdWord>()
         var index = 0
@@ -262,7 +289,8 @@ private class LineTranslation(
             }
             val rest = word.pieces.drop(1)
             val parts = first.text.substring(1).split('/')
-            val partNames = parts.map { it.substringBefore(':').lowercase() }
+            val split = parts.map { split(it.substringBefore(':').lowercase()) }
+            val partNames = split.map { it.first }
             val flagLike = partNames.all { n ->
                 FLAG_NAME.matches(n) && (n in known || n.length == 1 || n == "-y")
             }
@@ -284,7 +312,7 @@ private class LineTranslation(
                             "in the Android shell translation."
                     )
                 }
-                val colonValue = if (':' in part) part.substringAfter(':') else null
+                val colonValue = if (':' in part) part.substringAfter(':') else split[partIndex].second
                 val value: CmdWord? = when {
                     rest.isNotEmpty() -> word.withPieces(rest)
                     !colonValue.isNullOrEmpty() -> word.withPieces(listOf(Piece.Lit(colonValue, false)))
@@ -395,19 +423,25 @@ private class LineTranslation(
         return dir to name
     }
 
-    private fun hasUnquotedGlob(pieces: List<Piece>): Boolean =
-        pieces.any { it is Piece.Lit && !it.quoted && (it.text.contains('*') || it.text.contains('?')) }
+    /** CMD expands `*`/`?` itself, inside quotes too, so quoted wildcards count as globs. */
+    private fun hasGlob(pieces: List<Piece>): Boolean =
+        pieces.any { it is Piece.Lit && (it.text.contains('*') || it.text.contains('?')) }
 
     // ---------------------------------------------------------------- deletion guard
 
     private fun protectedPaths(): Set<String> {
         val home = environment["HOME"]?.let(::normalizeAbsolute)
-        return PROTECTED_PATHS + listOfNotNull(home)
+        // Both spellings: canonical for resolved paths, literal for wildcards over the alias itself.
+        val literal = PROTECTED_PATHS + listOfNotNull(home)
+        return literal + literal.map { canonicalGuardPath(it) }
     }
 
     /**
      * Refuses deletions that resolve to `/`, a wildcard over `/`, an empty target, or (for
-     * recursive/wildcard deletes) a protected system or storage root.
+     * recursive/wildcard deletes) a protected system or storage root or one of its ancestors.
+     * Wildcards are matched against the protected paths component by component, `..` is resolved
+     * through the known shared-storage symlinks, and every directory the command may run in is
+     * checked.
      */
     private fun guardDeletion(command: String, word: CmdWord, pieces: List<Piece>, recursive: Boolean) {
         val shown = word.displayText
@@ -421,34 +455,56 @@ private class LineTranslation(
         var path = text.replace(MULTI_SLASH, "/")
         var wildcardAll = false
         while (true) {
+            val last = path.substringAfterLast('/')
             path = when {
                 path.length > 1 && path.endsWith("/") -> path.dropLast(1)
-                path.endsWith("/*") || path.endsWith("/*.*") -> {
-                    wildcardAll = true
-                    path.substringBeforeLast('/').ifEmpty { "/" }
-                }
-                path == "*" || path == "*.*" -> {
-                    wildcardAll = true
-                    "."
-                }
                 path.length > 2 && path.endsWith("/.") -> path.dropLast(2)
+                // `*`, `*.*`, `**`, `*?`, `?`, `.*` ...: the last component matches (nearly) everything.
+                isMatchAllComponent(last) -> {
+                    wildcardAll = true
+                    if ('/' !in path) "." else path.substringBeforeLast('/').ifEmpty { "/" }
+                }
                 else -> break
             }
         }
-        val resolved = resolveAgainst(runningDirectory, path)
-        if (resolved == null) {
-            if ((recursive || wildcardAll) && (path == "." || path == ".." || path.startsWith("../"))) {
-                refuse("the working directory is unknown, so '$shown' cannot be verified as safe.")
+        val broad = recursive || wildcardAll
+        val climbs = path == "." || path == ".." || path.startsWith("../") || "/../" in path || path.endsWith("/..")
+        for (base in guardDirectories) {
+            val resolved = resolveForGuard(base, path)
+            if (resolved == null) {
+                if (broad && (climbs || hasGlobChars(path))) {
+                    refuse("the working directory is unknown, so '$shown' cannot be verified as safe.")
+                }
+                continue
             }
-            return
+            if (resolved == "/") refuse("it would delete the filesystem root '/'.")
+            if (broad) {
+                protectedCoveredBy(resolved)?.let { refuse("it resolves to (or contains) the protected directory $it.") }
+            }
+            if (recursive && resolved.removePrefix("/").substringBefore('/').any { it == '*' || it == '?' }) {
+                refuse("a wildcard directly under '/' would match system directories.")
+            }
         }
-        if (resolved == "/") refuse("it would delete the filesystem root '/'.")
-        if ((recursive || wildcardAll) && resolved in protectedPaths()) {
-            refuse("it resolves to the protected directory $resolved.")
+    }
+
+    private fun resolveForGuard(base: String?, path: String): String? = when {
+        path.startsWith("/") -> canonicalGuardPath(path)
+        base == null -> null
+        else -> canonicalGuardPath("$base/$path")
+    }
+
+    /**
+     * The first protected path that [pattern] (an absolute path, possibly with `*`/`?`) equals or
+     * is an ancestor of, matching wildcards per component; null when none.
+     */
+    private fun protectedCoveredBy(pattern: String): String? {
+        val components = pattern.split('/').filter { it.isNotEmpty() }
+        for (protected in protectedPaths()) {
+            val target = protected.split('/').filter { it.isNotEmpty() }
+            if (components.size > target.size) continue
+            if (components.indices.all { globMatches(components[it], target[it]) }) return protected
         }
-        if (recursive && resolved.removePrefix("/").substringBefore('/').any { it == '*' || it == '?' }) {
-            refuse("a wildcard directly under '/' would match system directories.")
-        }
+        return null
     }
 
     // ---------------------------------------------------------------- commands
@@ -469,13 +525,16 @@ private class LineTranslation(
                 "cd ${DefaultWindowsToLinuxTranslator.ANDROID_STORAGE_ROOT}"
             )
         }
-        updateDirectory(DefaultWindowsToLinuxTranslator.ANDROID_STORAGE_ROOT)
+        updateDirectory { DefaultWindowsToLinuxTranslator.ANDROID_STORAGE_ROOT }
         return "cd ${DefaultWindowsToLinuxTranslator.ANDROID_STORAGE_ROOT} && pwd"
     }
 
-    private fun updateDirectory(path: String?) {
+    /** Applies a `cd` given as a function from a base directory to the target (null = unknown). */
+    private fun updateDirectory(target: (base: String?) -> String?) {
         directoryChanged = true
-        runningDirectory = path
+        val moved = guardDirectories.map(target)
+        guardDirectories = (if (cdCertain) moved else guardDirectories + moved).distinct()
+        runningDirectory = target(runningDirectory)
     }
 
     private fun cd(name: String, args: List<CmdWord>): String {
@@ -484,7 +543,8 @@ private class LineTranslation(
             if (args.isEmpty()) return "pwd"
             // Already POSIX (`cd /sdcard`, `cd "$HOME"`): keep the user's own shell syntax.
             val rawArgs = original.substring(args.first().start, args.last().end)
-            updateDirectory(posixCdTarget(args.single()))
+            val word = args.single()
+            updateDirectory { base -> posixCdTarget(word, base) }
             return "cd $rawArgs && pwd"
         }
         val parsed = parseArgs(name, args, setOf("d"))
@@ -495,24 +555,24 @@ private class LineTranslation(
         }
         val word = parsed.positionals.first().withPieces(merged)
         val pieces = normalizePathPieces(word)
-        val target = resolveText(pieces, unknownAsEmpty = false)?.let { resolveAgainst(runningDirectory, it) }
-        updateDirectory(target)
+        val targetText = resolveText(pieces, unknownAsEmpty = false)
+        updateDirectory { base -> targetText?.let { resolveAgainst(base, it) } }
         return "cd ${PosixQuoting.render(pieces, VarStyle.QUOTED, allowGlob = false)} && pwd"
     }
 
-    private fun posixCdTarget(word: CmdWord): String? {
+    private fun posixCdTarget(word: CmdWord, base: String?): String? {
         var text = word.literalText ?: return null
         if (text == "-" || text.any { it in "$`*?[" }) return null
         if (text == "~" || text.startsWith("~/")) {
-            if (word.anyQuoted) return resolveAgainst(runningDirectory, text)
+            if (word.anyQuoted) return resolveAgainst(base, text)
             val home = environment["HOME"] ?: return null
             text = home + text.substring(1)
         }
-        return resolveAgainst(runningDirectory, text)
+        return resolveAgainst(base, text)
     }
 
     private fun dir(args: List<CmdWord>): String {
-        val parsed = parseArgs("dir", args, DIR_FLAGS)
+        val parsed = parseArgs("dir", args, DIR_FLAGS, gluedValues = DIR_GLUED_VALUES)
         val all = parsed.has("a")
         val recursive = parsed.has("s")
         val bare = parsed.has("b")
@@ -521,7 +581,7 @@ private class LineTranslation(
             if (targets.isEmpty()) return "find ."
             if (targets.size == 1) {
                 val pieces = normalizePathPieces(targets[0])
-                if (hasUnquotedGlob(pieces)) {
+                if (hasGlob(pieces)) {
                     val (dirPieces, namePieces) = splitLastComponent(pieces)
                     val root = if (dirPieces.isEmpty()) "." else PosixQuoting.render(dirPieces, VarStyle.QUOTED, true)
                     return "find $root -name ${PosixQuoting.render(namePieces, VarStyle.QUOTED, false)}"
@@ -614,10 +674,9 @@ private class LineTranslation(
                 }
                 val rootPieces = dirPieces.ifEmpty { listOf(Piece.Lit(".", false)) }
                 val nameText = resolveText(namePieces, unknownAsEmpty = true) ?: ""
-                val matchesEverything = nameText == "*" || nameText == "*.*" || nameText.isEmpty()
-                guardDeletion(name, word, rootPieces, recursive = matchesEverything)
-                val rootText = resolveText(rootPieces, unknownAsEmpty = true)?.let { resolveAgainst(runningDirectory, it) }
-                if (rootText == "/") guardDeletion(name, word, listOf(Piece.Lit("/", false)), recursive = true)
+                val matchesEverything = nameText.isEmpty() || isMatchAllComponent(nameText)
+                // The root itself is never deleted, but `/` (or a glob over a protected tree) is refused.
+                guardDeletion(name, word, rootPieces, recursive = matchesEverything || hasGlob(rootPieces))
                 val interactive = if (parsed.has("p")) " -ok rm -f {} ;" else " -delete"
                 "find ${PosixQuoting.render(rootPieces, VarStyle.REQUIRED, true)} -type f -name " +
                     PosixQuoting.render(namePieces, VarStyle.REQUIRED, false) + interactive
@@ -697,7 +756,7 @@ private class LineTranslation(
         } else {
             patterns.flatMap { listOf("-e", PosixQuoting.render(resolveVars(it.pieces), VarStyle.QUOTED, false)) }
         }
-        val files = if (parsed.has("s") && positionals.size == 1 && hasUnquotedGlob(positionals[0].pieces) &&
+        val files = if (parsed.has("s") && positionals.size == 1 && hasGlob(positionals[0].pieces) &&
             positionals[0].literalText?.contains('\\') == false && positionals[0].literalText?.contains('/') == false
         ) {
             listOf("--include=" + PosixQuoting.render(positionals[0].pieces, VarStyle.QUOTED, false), ".")
@@ -819,6 +878,11 @@ private class LineTranslation(
                 "import|export|add|format|measure|sort|where|foreach|restart|resolve|split|join)-[a-z]+$"
         )
 
+        private val DIR_GLUED_VALUES = mapOf(
+            "a" to Regex("[-dhsrailo]+"),
+            "o" to Regex("[-nesdg]+"),
+            "t" to Regex("[cwa]")
+        )
         private val DIR_FLAGS = setOf("a", "s", "b", "w", "p", "q", "l", "x", "c", "n", "o", "t", "r", "4", "d")
         private val COPY_FLAGS = setOf("y", "-y", "v", "b", "a", "d", "z", "l", "n")
         private val XCOPY_FLAGS = setOf("e", "s", "y", "-y", "i", "q", "h", "c", "k", "f", "v", "w", "r", "d")
@@ -924,6 +988,65 @@ private class LineTranslation(
             "get-command" to "which <name>"
         )
     }
+}
+
+/** Known symlinks onto shared storage / app data, resolved before `..` like the kernel does. */
+private val GUARD_ALIASES: Map<String, List<String>> = mapOf(
+    "/sdcard" to "/storage/emulated/0",
+    "/storage/self/primary" to "/storage/emulated/0",
+    "/storage/emulated/legacy" to "/storage/emulated/0",
+    "/mnt/sdcard" to "/storage/emulated/0",
+    "/mnt/user/0/primary" to "/storage/emulated/0",
+    "/data/user/0" to "/data/data"
+).mapValues { (_, target) -> target.split('/').filter { it.isNotEmpty() } }
+
+/**
+ * Like [normalizeAbsolute] but follows [GUARD_ALIASES] as each component is appended, so
+ * `/sdcard/../0` becomes `/storage/emulated/0` (as `rm` sees it), not `/0`.
+ */
+internal fun canonicalGuardPath(path: String): String {
+    val parts = ArrayList<String>()
+    for (part in path.split('/')) {
+        when (part) {
+            "", "." -> Unit
+            ".." -> parts.removeLastOrNull()
+            else -> {
+                parts.add(part)
+                GUARD_ALIASES["/" + parts.joinToString("/")]?.let { target ->
+                    parts.clear()
+                    parts.addAll(target)
+                }
+            }
+        }
+    }
+    return "/" + parts.joinToString("/")
+}
+
+private fun hasGlobChars(text: String): Boolean = text.any { it == '*' || it == '?' || it == '[' }
+
+/** True for a path component made only of wildcards and dots, with at least one wildcard. */
+internal fun isMatchAllComponent(component: String): Boolean =
+    component.isNotEmpty() && component.all { it == '*' || it == '?' || it == '.' } &&
+        component.any { it == '*' || it == '?' }
+
+/** Shell-style match of one path component; `[...]` classes are treated as matching anything. */
+internal fun globMatches(pattern: String, name: String): Boolean {
+    if (!hasGlobChars(pattern)) return pattern == name
+    if ('[' in pattern) return true
+    var p = 0
+    var n = 0
+    var star = -1
+    var resume = 0
+    while (n < name.length) {
+        when {
+            p < pattern.length && (pattern[p] == '?' || pattern[p] == name[n]) -> { p++; n++ }
+            p < pattern.length && pattern[p] == '*' -> { star = p++; resume = n }
+            star >= 0 -> { p = star + 1; n = ++resume }
+            else -> return false
+        }
+    }
+    while (p < pattern.length && pattern[p] == '*') p++
+    return p == pattern.length
 }
 
 /** Collapses `.`, `..` and duplicate slashes in an absolute POSIX path without touching the filesystem. */

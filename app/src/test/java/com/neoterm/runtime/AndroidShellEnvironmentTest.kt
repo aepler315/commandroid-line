@@ -50,8 +50,15 @@ class AndroidShellEnvironmentTest {
         val env = AndroidShellEnvironment(context)
         val plain = File(context.cacheDir,"plain.sh").apply { writeText("printf hello\n") }
         assertArrayEquals(arrayOf("/system/bin/sh", plain.path, "arg"), env.setupProcessArgs(plain.path,arrayOf("arg")))
+        // App-data scripts cannot be execve'd at targetSdk 29+ (W^X): run them via their interpreter.
         val shebang = File(context.cacheDir,"shebang.sh").apply { writeText("#!/system/bin/sh\nprintf hello\n") }
-        assertArrayEquals(arrayOf(shebang.path), env.setupProcessArgs(shebang.path,null))
+        assertArrayEquals(arrayOf("/system/bin/sh", shebang.path), env.setupProcessArgs(shebang.path,null))
+        val withArg = File(context.cacheDir,"arg.sh").apply { writeText("#!/system/bin/sh -e\nprintf hello\n") }
+        assertArrayEquals(arrayOf("/system/bin/sh", "-e", withArg.path, "x"), env.setupProcessArgs(withArg.path,arrayOf("x")))
+        val prefixInterpreter = File(context.cacheDir,"prefix.sh").apply { writeText("#!/data/data/x/files/usr/bin/bash\necho\n") }
+        assertArrayEquals(arrayOf("/system/bin/sh", prefixInterpreter.path), env.setupProcessArgs(prefixInterpreter.path,null))
+        val outside = File(System.getProperty("java.io.tmpdir"), "neoterm-shebang-${System.nanoTime()}.sh").apply { writeText("#!/system/bin/sh\n") }
+        try { assertArrayEquals(arrayOf(outside.path), env.setupProcessArgs(outside.path,null)) } finally { outside.delete() }
         val elf = File(context.cacheDir,"elf").apply { writeBytes(byteArrayOf(127,69,76,70,0)) }
         assertArrayEquals(arrayOf(elf.path),env.setupProcessArgs(elf.path,null))
         assertArrayEquals(arrayOf("/system/bin/sh","-c","pwd"),env.setupProcessArgs("/system/bin/sh",arrayOf("-c","pwd")))

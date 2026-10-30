@@ -8,6 +8,7 @@ import android.text.Editable
 import android.text.InputType
 import android.text.Selection
 import android.text.SpannableStringBuilder
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
@@ -84,6 +85,24 @@ class NeoTermInputController(
     @VisibleForTesting
     internal var activeSessionId: String? = null
         private set
+
+    /**
+     * Session the staged buffer belongs to (null before the first [onSessionChanged]). Hosts pass it
+     * along with committed lines so a line staged in one session never runs in another.
+     */
+    val stagedSessionId: String?
+        get() = activeSessionId
+
+    /** Cursor (selection end) within the staged text, always on a code point boundary. */
+    val stagedCursorIndex: Int
+        get() {
+            val end = Selection.getSelectionEnd(stagedEditable)
+            val raw = if (end < 0) stagedEditable.length else end
+            return clampToSurrogateSafeBoundary(stagedEditable, raw, preferStart = true)
+        }
+
+    /** Accent of a hardware dead key (KeyCharacterMap.COMBINING_ACCENT) waiting for its base letter. */
+    private var pendingDeadAccent = 0
 
     /** True while the IME edits the staged buffer; false means raw key-event bypass (TYPE_NULL). */
     var isStagedTextMode: Boolean = true
@@ -188,9 +207,29 @@ class NeoTermInputController(
                 return true
             }
         }
-        val codePoint = event.unicodeChar
-        if (codePoint == 0 || Character.isISOControl(codePoint) && codePoint != '\t'.code) return false
-        if (isDown) insertText(String(Character.toChars(codePoint)))
+        val unicode = event.unicodeChar
+        if (unicode and KeyCharacterMap.COMBINING_ACCENT != 0) {
+            // Dead key (e.g. ´ or ^ on US-International/German layouts): remember the accent and
+            // combine it with the next letter. The raw value is negative and not a code point.
+            if (isDown) pendingDeadAccent = unicode and KeyCharacterMap.COMBINING_ACCENT_MASK
+            return true
+        }
+        val codePoint = unicode
+        if (!isInsertableCodePoint(codePoint)) return false
+        if (isDown) {
+            val accent = pendingDeadAccent
+            pendingDeadAccent = 0
+            var toInsert = codePoint
+            if (accent != 0) {
+                val composed = KeyEvent.getDeadChar(accent, codePoint)
+                if (composed != 0 && isInsertableCodePoint(composed)) {
+                    toInsert = composed
+                } else if (isInsertableCodePoint(accent)) {
+                    insertText(String(Character.toChars(accent)))
+                }
+            }
+            insertText(String(Character.toChars(toInsert)))
+        }
         return true
     }
 
@@ -306,7 +345,13 @@ class NeoTermInputController(
             newline = indexOfNewline()
         }
         notifyStagedState()
-        lines.forEach(onCommitLine)
+        // Every line belongs to the session it was staged in. If one of them switches or closes
+        // that session (e.g. `exit`), the rest of a multi-line paste is dropped, never run elsewhere.
+        val owner = activeSessionId
+        for (line in lines) {
+            if (activeSessionId != owner) return
+            onCommitLine(line)
+        }
     }
 
     private fun indexOfNewline(): Int {
@@ -361,6 +406,19 @@ class NeoTermInputController(
         BaseInputConnection(targetView, fullEditor) {
 
         override fun getEditable(): Editable = stagedEditable
+
+        /**
+         * Also reached through closeConnection() when the IMM deactivates the connection. The
+         * framework only strips the composing span, so republish the state or the prompt keeps
+         * underlining a composition that no longer exists.
+         */
+        override fun finishComposingText(): Boolean {
+            val hadComposition = getComposingSpanStart(stagedEditable) >= 0
+            super.finishComposingText()
+            sanitizeStagedRanges(this)
+            if (hadComposition) notifyStagedState()
+            return true
+        }
 
         internal fun applyComposingRegion(start: Int, end: Int) {
             super.setComposingRegion(start, end)
@@ -493,21 +551,24 @@ class NeoTermInputController(
             if (beforeLength < 0 || afterLength < 0) return false
             val (a, b) = protectedRange()
             val content = stagedEditable
+            // Bounded by the buffer edges: callers pass Int.MAX_VALUE to mean "everything".
             var deleteStart = a
-            repeat(beforeLength) {
-                if (deleteStart <= 0) return@repeat
+            var before = beforeLength
+            while (before > 0 && deleteStart > 0) {
                 deleteStart -= if (deleteStart >= 2 &&
                     Character.isLowSurrogate(content[deleteStart - 1]) &&
                     Character.isHighSurrogate(content[deleteStart - 2])
                 ) 2 else 1
+                before--
             }
             var deleteEnd = b
-            repeat(afterLength) {
-                if (deleteEnd >= content.length) return@repeat
+            var after = afterLength
+            while (after > 0 && deleteEnd < content.length) {
                 deleteEnd += if (deleteEnd + 1 < content.length &&
                     Character.isHighSurrogate(content[deleteEnd]) &&
                     Character.isLowSurrogate(content[deleteEnd + 1])
                 ) 2 else 1
+                after--
             }
             deleteAround(
                 clampToSurrogateSafeBoundary(content, deleteStart, preferStart = true),
@@ -600,6 +661,18 @@ class NeoTermInputController(
             // A hardware DEL edits at the cursor, so settle any active composition first.
             removeComposingSpans(content)
             if (forward) deleteSurroundingTextInCodePoints(0, 1) else deleteSurroundingTextInCodePoints(1, 0)
+        }
+    }
+
+    companion object {
+        /**
+         * True for a real, printable code point: rejects 0, control characters (except TAB), values
+         * carrying KeyCharacterMap.COMBINING_ACCENT, out-of-range values and lone surrogates.
+         */
+        fun isInsertableCodePoint(codePoint: Int): Boolean {
+            if (codePoint <= 0 || !Character.isValidCodePoint(codePoint)) return false
+            if (codePoint in Character.MIN_SURROGATE.code..Character.MAX_SURROGATE.code) return false
+            return !Character.isISOControl(codePoint) || codePoint == '\t'.code
         }
     }
 }

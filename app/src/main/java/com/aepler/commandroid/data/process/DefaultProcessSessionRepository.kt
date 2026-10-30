@@ -29,9 +29,14 @@ class DefaultProcessSessionRepository @Inject constructor(
     @ProcessScope private val scope: CoroutineScope
 ) : ProcessSessionRepository {
 
+    /**
+     * SUSPEND, not DROP_OLDEST: a slow collector must push back into each command's
+     * [OutputRingBuffer], which then drops with a visible "characters dropped" marker. Dropping
+     * here would lose chunks silently, and across sessions.
+     */
     private val _output = MutableSharedFlow<TerminalOutputChunk>(
         extraBufferCapacity = OUTPUT_BUFFER,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
+        onBufferOverflow = BufferOverflow.SUSPEND
     )
     override val output: Flow<TerminalOutputChunk> = _output.asSharedFlow()
 

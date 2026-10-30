@@ -412,4 +412,87 @@ class NeoTermInputControllerTest {
         ic.commitText("d", 1)
         assertEquals("d", controller.stagedText)
     }
+
+    @Test
+    fun linesAfterASessionSwitchingLineAreDropped() {
+        var switched = false
+        lateinit var exiting: NeoTermInputController
+        exiting = NeoTermInputController(
+            inputViewProvider = { view },
+            onStagedBufferChanged = { _, _ -> },
+            onCommitLine = { line ->
+                committedLines += line
+                // Like `exit`: the host closes session A and moves the controller to session B.
+                if (line == "exit" && !switched) {
+                    switched = true
+                    exiting.onSessionChanged("B")
+                }
+            },
+            onControlKeyIntercepted = { _, _ -> false },
+            imeBridge = bridge
+        )
+        exiting.onSessionChanged("A")
+        idleMain()
+        assertEquals("A", exiting.stagedSessionId)
+        // A multi-line paste arrives as one commitText.
+        exiting.onCreateInputConnection(EditorInfo()).commitText("exit\nrm -r tmp\n", 1)
+        assertEquals(listOf("exit"), committedLines)
+        assertEquals("B", exiting.stagedSessionId)
+    }
+
+    @Test
+    fun finishComposingTextPublishesClearedComposingRange() {
+        val ic = connection()
+        ic.setComposingText("hel", 1)
+        assertEquals(0..2, bufferUpdates.last().second)
+        ic.finishComposingText()
+        assertEquals("hel" to null, bufferUpdates.last())
+
+        ic.setComposingText("lo", 1)
+        assertEquals(3..4, bufferUpdates.last().second)
+        ic.closeConnection()
+        assertEquals("hello" to null, bufferUpdates.last())
+    }
+
+    @Test
+    fun deadKeyIsComposedWithTheNextLetterInsteadOfCrashing() {
+        controller.onSessionChanged("s1")
+        idleMain()
+        val acute = '\u00B4'.code
+        val deadAcute = object : KeyEvent(ACTION_DOWN, KEYCODE_APOSTROPHE) {
+            override fun getUnicodeChar(metaState: Int): Int = acute or android.view.KeyCharacterMap.COMBINING_ACCENT
+        }
+        assertTrue(controller.handleKeyEvent(deadAcute))
+        assertEquals("", controller.stagedText)
+        val letterE = object : KeyEvent(ACTION_DOWN, KEYCODE_E) {
+            override fun getUnicodeChar(metaState: Int): Int = 'e'.code
+        }
+        assertTrue(controller.handleKeyEvent(letterE))
+        assertEquals("\u00E9", controller.stagedText)
+
+        val loneSurrogate = object : KeyEvent(ACTION_DOWN, KEYCODE_A) {
+            override fun getUnicodeChar(metaState: Int): Int = 0xD800
+        }
+        assertFalse(controller.handleKeyEvent(loneSurrogate))
+        assertFalse(NeoTermInputController.isInsertableCodePoint(acute or android.view.KeyCharacterMap.COMBINING_ACCENT))
+        assertEquals("\u00E9", controller.stagedText)
+    }
+
+    @Test(timeout = 2_000)
+    fun deleteSurroundingTextInCodePointsWithHugeLengthsIsBounded() {
+        val ic = connection()
+        ic.commitText("ab\uD83D\uDE80cd", 1)
+        ic.setSelection(3, 3) // inside the surrogate pair: clamped to its start
+        assertTrue(ic.deleteSurroundingTextInCodePoints(Int.MAX_VALUE, Int.MAX_VALUE))
+        assertEquals("", controller.stagedText)
+    }
+
+    @Test
+    fun stagedCursorIndexFollowsSelection() {
+        val ic = connection()
+        ic.commitText("dir foo", 1)
+        assertEquals(7, controller.stagedCursorIndex)
+        controller.moveCursor(-3)
+        assertEquals(4, controller.stagedCursorIndex)
+    }
 }

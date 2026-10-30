@@ -257,6 +257,62 @@ class WindowsToLinuxTranslatorTest {
         error("rd /s /q %USERPROFILE%")
     }
 
+    @Test fun guardRefusesEveryMatchAllWildcard() {
+        val storage = File("/storage/emulated/0")
+        listOf("rd /s /q C:\\**", "rd /s /q **", "rd /s /q C:\\*?", "del /q **", "rd /s /q ?*", "rd /s /q .*")
+            .forEach { error(it, storage) }
+        // Still fine below the storage root.
+        assertEquals("rm -rf **", posix("rd /s /q **", File("/storage/emulated/0/Download/tmp")))
+    }
+
+    @Test fun guardMatchesWildcardsInIntermediateComponents() {
+        listOf(
+            "rd /s /q \\storage\\emu*\\0",
+            "rd /s /q C:\\..\\?",
+            "rd /s /q \\storage\\self\\prim*",
+            "rd /s /q \\data\\user\\0\\com.neo*"
+        ).forEach { error(it, File("/storage/emulated/0")) }
+        assertEquals("rm -rf /storage/emulated/0/Download/c*/old", posix("rd /s /q C:\\Download\\c*\\old"))
+    }
+
+    @Test fun guardChecksBothDirectoriesWhenCdMayNotHaveRun() {
+        val storage = File("/storage/emulated/0")
+        error("cd zzz & rd /s /q *", storage)
+        error("cd zzz || rd /s /q *", storage)
+        error("cd zzz | rd /s /q *", storage)
+        error("echo x || cd zzz && rd /s /q *", storage)
+        // `&&` gates the deletion on cd succeeding.
+        assertEquals("cd zzz && pwd && rm -rf *", posix("cd zzz && rd /s /q *", storage))
+    }
+
+    @Test fun guardFollowsStorageSymlinksForDotDot() {
+        error("rd /s /q ..\\0", File("/sdcard"))
+        error("cd /sdcard && rd /s /q ..\\0", File("/storage/emulated/0/Download"))
+        error("rd /s /q ..\\0", File("/storage/self/primary"))
+    }
+
+    @Test fun quotedWildcardsStillExpand() {
+        assertEquals("ls -l *.txt", posix("dir \"*.txt\""))
+        assertEquals("rm -f /storage/emulated/0/tmp/*.log", posix("del \"C:\\tmp\"\\*.log"))
+        assertEquals("ls -l '/storage/emulated/0/My Docs/'*.txt", posix("dir \"C:\\My Docs\\*.txt\""))
+        assertEquals(
+            "find '/storage/emulated/0/My Docs' -name '*.txt'",
+            posix("dir /s \"C:\\My Docs\\*.txt\"")
+        )
+        // A quoted match-all wildcard is guarded like an unquoted one.
+        error("rd /s /q \"C:\\*\"", File("/storage/emulated/0"))
+    }
+
+    @Test fun dirGluedAttributeAndSortSwitches() {
+        assertEquals("ls -la", posix("dir /ad"))
+        assertEquals("ls -la", posix("dir /a-d"))
+        assertEquals("ls -la", posix("dir /ah"))
+        assertEquals("ls -l", posix("dir /od"))
+        // Real Android paths that start like a switch stay paths.
+        assertEquals("ls -l /apex", posix("dir /apex"))
+        assertEquals("ls -l /odm", posix("dir /odm"))
+    }
+
     @Test fun guardAllowsOrdinaryTargets() {
         assertEquals("rm -rf /storage/emulated/0/Download/cache", posix("rd /s /q C:\\Download\\cache"))
         assertEquals("rm -rf build", posix("rd /s /q build"))

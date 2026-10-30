@@ -119,6 +119,38 @@ class NeoTermViewTest {
         assertEquals(listOf("x", "y"), (0 until view.rowBuffer.size).map { view.rowBuffer[it].text() })
     }
 
+    @Test fun valueEqualLinesAtCapacityAreStillAppended() {
+        val view = laidOut()
+        val first = (0 until 4999).map { line("l$it") } + line("C:\\>", TerminalLineKind.COMMAND_ECHO)
+        view.submitLines(first)
+        // Model at its 5000-line cap: head trimmed, and the new last line equals the old one by value.
+        val second = first.drop(1) + line("C:\\>", TerminalLineKind.COMMAND_ECHO)
+        view.submitLines(second)
+        val size = view.rowBuffer.size
+        assertEquals("C:\\>", view.rowBuffer[size - 1].text())
+        assertEquals("C:\\>", view.rowBuffer[size - 2].text())
+        assertEquals("l4998", view.rowBuffer[size - 3].text())
+    }
+
+    @Test fun trailingPartialLineIsReplacedWithoutRebuild() {
+        val view = laidOut()
+        val a = line("a")
+        view.submitLines(listOf(a, line("par")))
+        val firstRow = view.rowBuffer[0]
+        // The model re-creates the partial line on every chunk.
+        view.submitLines(listOf(a, line("partial")))
+        assertTrue(firstRow === view.rowBuffer[0])
+        assertEquals(listOf("a", "partial"), (0 until view.rowBuffer.size).map { view.rowBuffer[it].text() })
+        val done = line("partial done")
+        view.submitLines(listOf(a, done, line("next"), line("err", TerminalLineKind.STDERR)))
+        view.submitLines(listOf(a, done, line("next line"), line("err!", TerminalLineKind.STDERR)))
+        assertTrue(firstRow === view.rowBuffer[0])
+        assertEquals(
+            listOf("a", "partial done", "next line", "err!"),
+            (0 until view.rowBuffer.size).map { view.rowBuffer[it].text() }
+        )
+    }
+
     @Test fun clearScreenResetsBufferAndCursor() {
         val view = laidOut()
         val lines = (0 until 50).map { line("row $it") }
@@ -139,6 +171,9 @@ class NeoTermViewTest {
         view.submitLines(lines)
         assertEquals(TerminalRowBuffer.MAX_SCROLLBACK_LINES, view.rowBuffer.size)
         view.setPromptState("C:\\storage\\emulated\\0> ", "echo \uD83D\uDE80\uD83D\uDE80", 5..5)
+        view.draw(Canvas(Bitmap.createBitmap(800, 600, Bitmap.Config.ARGB_8888)))
+        // Cursor inside the staged text, including an index inside a surrogate pair.
+        view.setPromptState("C:\\> ", "echo \uD83D\uDE80\uD83D\uDE80", null, cursorIndex = 6)
         view.draw(Canvas(Bitmap.createBitmap(800, 600, Bitmap.Config.ARGB_8888)))
     }
 

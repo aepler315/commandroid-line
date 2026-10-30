@@ -195,7 +195,8 @@ public final class TermuxService extends Service implements TermuxTask.TermuxTas
     private void runStartForeground() {
         setupNotificationChannel();
         // NeoTerm: SDK 34 requires a declared foreground service type.
-        ForegroundServiceUtils.startSpecialUseForeground(this, TermuxConstants.TERMUX_APP_NOTIFICATION_ID, buildNotification());
+        if (!ForegroundServiceUtils.startSpecialUseForeground(this, TermuxConstants.TERMUX_APP_NOTIFICATION_ID, buildNotification()))
+            Logger.logWarn(LOG_TAG, "Foreground promotion refused (app in background); sessions may be killed by the system");
     }
 
     /** Make service leave foreground mode. */

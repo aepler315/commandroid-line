@@ -39,9 +39,13 @@ object TerminalKeyEncoder {
 
     /**
      * Bytes for [codePoint] typed with the given modifiers: CTRL maps to a control byte, ALT prefixes
-     * ESC. Null when CTRL is set but the character has no control code.
+     * ESC. Null when CTRL is set but the character has no control code, or [codePoint] is invalid.
      */
     fun encodeChar(codePoint: Int, ctrl: Boolean, alt: Boolean): ByteArray? {
+        // Dead-key values (COMBINING_ACCENT bit), out-of-range values and lone surrogates.
+        if (codePoint <= 0 || !Character.isValidCodePoint(codePoint) ||
+            codePoint in Character.MIN_SURROGATE.code..Character.MAX_SURROGATE.code
+        ) return null
         val base = if (ctrl) {
             if (codePoint > 0xFFFF) return null
             val control = controlByteFor(codePoint.toChar()) ?: return null

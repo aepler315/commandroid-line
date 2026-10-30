@@ -45,15 +45,22 @@ class NeoTermView @JvmOverloads constructor(
     private var notifiedColumns = 0
     private var notifiedRows = 0
 
-    /** Bookkeeping for the append-only fast path of [submitLines]. */
-    private var submittedCount = 0
-    private var lastSubmitted: TerminalRenderedLine? = null
+    /**
+     * Bookkeeping for the incremental path of [submitLines]: the last few submitted line objects
+     * (compared by identity, never by value) and how many buffer rows each produced (-1 unknown).
+     * Keeping more than one lets a trailing partial line, which the model re-creates on every
+     * output chunk, be replaced in place instead of forcing a full rebuild.
+     */
+    private val tailLines = arrayOfNulls<TerminalRenderedLine>(TAIL_TRACKED)
+    private val tailRows = IntArray(TAIL_TRACKED)
+    private var tailCount = 0
     private var evictedSeen = 0L
 
     private var prompt = ""
     private var staged = ""
     private var composingStart = -1
     private var composingEnd = -1
+    private var cursorIndex = 0
 
     /** Pixel offset of the viewport top within the content; content = scrollback rows + prompt row. */
     private var scrollPx = 0
@@ -104,23 +111,89 @@ class NeoTermView @JvmOverloads constructor(
 
     /** Replaces the scrollback contents with [lines] (already filtered to the active session). */
     fun submitLines(lines: List<TerminalRenderedLine>) {
-        val start = appendStartFor(lines)
-        if (start < 0) {
+        val plan = planUpdate(lines)
+        val from: Int
+        if (plan == null) {
             buffer.clear()
+            from = 0
+        } else {
+            if (plan.dropLines == 0 && plan.appendFrom == lines.size) return // Nothing changed: no redraw.
+            var rows = 0
+            for (k in 0 until plan.dropLines) rows += tailRows[tailCount - 1 - k]
+            buffer.removeLastRows(rows)
+            from = plan.appendFrom
         }
-        val from = if (start < 0) 0 else start
+        val produced = IntArray(minOf(TAIL_TRACKED, lines.size - from))
         for (index in from until lines.size) {
             val line = lines[index]
-            buffer.appendLine(line.text, line.kind)
+            val rows = buffer.appendLine(line.text, line.kind)
+            val slot = index - (lines.size - produced.size)
+            if (slot >= 0) produced[slot] = rows
         }
-        submittedCount = lines.size
-        lastSubmitted = lines.lastOrNull()
-        if (start >= 0 && from == lines.size) return // Nothing changed: no redraw.
+        rememberTail(lines, from, produced)
+        // A rebuild re-evicts rows that were already gone; that is not a shift of visible content.
+        if (plan == null) evictedSeen = buffer.evictedRows
         onContentChanged()
     }
 
+    private class UpdatePlan(val dropLines: Int, val appendFrom: Int)
+
+    /**
+     * How to bring the buffer from the previously submitted list to [lines]: drop the newest
+     * `dropLines` submitted lines (no longer present by identity), then append from `appendFrom`.
+     * Null when the buffer must be rebuilt.
+     */
+    private fun planUpdate(lines: List<TerminalRenderedLine>): UpdatePlan? {
+        if (tailCount == 0) return if (buffer.size == 0) UpdatePlan(0, 0) else null
+        var droppedRows = 0
+        for (k in 0 until tailCount) {
+            if (k > 0) {
+                val rows = tailRows[tailCount - k]
+                if (rows < 0) return null
+                droppedRows += rows
+                if (droppedRows > buffer.size) return null
+            }
+            val anchor = tailLines[tailCount - 1 - k]
+            // Sliding window (producer trimmed its head) is fine: search the anchor by identity.
+            for (index in lines.size - 1 downTo 0) {
+                if (lines[index] === anchor) return UpdatePlan(k, index + 1)
+            }
+        }
+        return null
+    }
+
+    private fun rememberTail(lines: List<TerminalRenderedLine>, from: Int, produced: IntArray) {
+        val count = minOf(TAIL_TRACKED, lines.size)
+        val first = lines.size - count
+        val newLines = arrayOfNulls<TerminalRenderedLine>(count)
+        val newRows = IntArray(count)
+        for (j in 0 until count) {
+            val index = first + j
+            val line = lines[index]
+            newLines[j] = line
+            newRows[j] = if (index >= from) {
+                produced[index - (lines.size - produced.size)]
+            } else {
+                var known = -1
+                for (t in 0 until tailCount) if (tailLines[t] === line) known = tailRows[t]
+                known
+            }
+        }
+        tailLines.fill(null)
+        for (j in 0 until count) {
+            tailLines[j] = newLines[j]
+            tailRows[j] = newRows[j]
+        }
+        tailCount = count
+    }
+
     /** Updates the staged prompt overlay row: prompt prefix, staged text, active IME composing span. */
-    fun setPromptState(prompt: String, stagedText: String, composingRange: IntRange?) {
+    fun setPromptState(
+        prompt: String,
+        stagedText: String,
+        composingRange: IntRange?,
+        cursorIndex: Int = stagedText.length
+    ) {
         var start = -1
         var end = -1
         if (composingRange != null && !composingRange.isEmpty()) {
@@ -130,11 +203,15 @@ class NeoTermView @JvmOverloads constructor(
                 start = -1; end = -1
             }
         }
-        if (prompt == this.prompt && stagedText == staged && start == composingStart && end == composingEnd) return
+        val cursor = TerminalRenderer.surrogateSafeIndex(stagedText, cursorIndex, preferStart = true)
+        if (prompt == this.prompt && stagedText == staged && start == composingStart && end == composingEnd &&
+            cursor == this.cursorIndex
+        ) return
         this.prompt = prompt
         staged = stagedText
         composingStart = start
         composingEnd = end
+        this.cursorIndex = cursor
         if (followBottom) scrollPx = maxScroll()
         invalidate()
     }
@@ -144,22 +221,12 @@ class NeoTermView @JvmOverloads constructor(
         // Submitted-line bookkeeping is kept, so a later list that extends the old one only shows new lines.
         buffer.clear()
         evictedSeen = buffer.evictedRows
+        // The tracked tail lines are no longer in the buffer: replacing them drops nothing.
+        for (t in 0 until tailCount) tailRows[t] = 0
         scroller.forceFinished(true)
         scrollPx = 0
         followBottom = true
         invalidate()
-    }
-
-    /** Index in [lines] from which to append, or -1 when the buffer must be rebuilt. */
-    private fun appendStartFor(lines: List<TerminalRenderedLine>): Int {
-        val previous = lastSubmitted
-        if (previous == null || submittedCount == 0) return if (buffer.size == 0) 0 else -1
-        if (lines.size >= submittedCount && lines[submittedCount - 1] == previous) return submittedCount
-        // Sliding window (producer trimmed its head): find the previously last instance by identity.
-        for (index in lines.size - 1 downTo 0) {
-            if (lines[index] === previous) return index + 1
-        }
-        return -1
     }
 
     private fun onContentChanged() {
@@ -202,6 +269,8 @@ class NeoTermView @JvmOverloads constructor(
         if (newColumns != buffer.columns) {
             buffer.resize(newColumns)
             evictedSeen = buffer.evictedRows
+            // Row counts per line changed with the re-wrap.
+            for (t in 0 until tailCount) tailRows[t] = -1
         }
         scrollPx = if (followBottom) maxScroll() else scrollPx.coerceIn(0, maxScroll())
         if (newColumns != notifiedColumns || newRows != notifiedRows) {
@@ -230,7 +299,7 @@ class NeoTermView @JvmOverloads constructor(
         if (rowIndex == total && top < viewportBottom) {
             renderer.drawPromptRow(
                 canvas, left, top.toFloat(), (width - paddingLeft - paddingRight).toFloat(),
-                prompt, staged, composingStart, composingEnd, drawCursor = isFocused
+                prompt, staged, composingStart, composingEnd, drawCursor = isFocused, cursorIndex = cursorIndex
             )
         }
         canvas.restore()
@@ -300,5 +369,10 @@ class NeoTermView @JvmOverloads constructor(
             postInvalidateOnAnimation()
             return true
         }
+    }
+
+    private companion object {
+        /** Trailing lines tracked for in-place replacement (partial stdout + stderr, plus slack). */
+        const val TAIL_TRACKED = 4
     }
 }

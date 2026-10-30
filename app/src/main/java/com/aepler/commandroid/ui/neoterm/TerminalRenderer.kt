@@ -89,8 +89,9 @@ class TerminalRenderer(context: Context) {
 
     /**
      * Draws `prompt + staged` on one grid row. [composingStart, composingEnd) must already be
-     * surrogate-safe UTF-16 indices into [staged] (or -1 for no span). When the line is wider than
-     * [availableWidth] it is shifted left so the cursor stays visible.
+     * surrogate-safe UTF-16 indices into [staged] (or -1 for no span). The cursor is drawn before
+     * the code point at [cursorIndex] (a surrogate-safe index; defaults to the end). When the cursor
+     * would fall outside [availableWidth] the line is shifted left so it stays visible.
      */
     fun drawPromptRow(
         canvas: Canvas,
@@ -101,12 +102,17 @@ class TerminalRenderer(context: Context) {
         staged: String,
         composingStart: Int,
         composingEnd: Int,
-        drawCursor: Boolean
+        drawCursor: Boolean,
+        cursorIndex: Int = staged.length
     ) {
+        val cursor = cursorIndex.coerceIn(0, staged.length)
         val promptWidth = promptPaint.measureText(prompt, 0, prompt.length)
         val stagedWidth = stagedPaint.measureText(staged, 0, staged.length)
-        val total = promptWidth + stagedWidth + charWidth
-        var x = left + if (total > availableWidth) availableWidth - total else 0f
+        // Monospace: every text paint shares the glyph advance, so one measurement places the cursor.
+        val cursorOffset = promptWidth + stagedPaint.measureText(staged, 0, cursor)
+        val needed = cursorOffset + charWidth
+        val origin = left + if (needed > availableWidth) availableWidth - needed else 0f
+        var x = origin
         val baseline = top + baselineOffset
         if (prompt.isNotEmpty()) canvas.drawText(prompt, 0, prompt.length, x, baseline, promptPaint)
         x += promptWidth
@@ -123,7 +129,8 @@ class TerminalRenderer(context: Context) {
             x = drawSegment(canvas, staged, composingEnd, staged.length, x, baseline, stagedPaint)
         }
         if (drawCursor) {
-            canvas.drawRect(x, top, x + maxOf(2f, charWidth / 4f), top + lineHeight, cursorPaint)
+            val cursorX = origin + cursorOffset
+            canvas.drawRect(cursorX, top, cursorX + maxOf(2f, charWidth / 4f), top + lineHeight, cursorPaint)
         }
     }
 

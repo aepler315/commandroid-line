@@ -50,8 +50,8 @@ class TerminalViewModel @Inject constructor(
     fun dispatch(intent: TerminalIntent) {
         when (intent) {
             is TerminalIntent.UpdateStagedInput ->
-                reduce { TerminalReducer.updateStagedInput(it, intent.stagedText, intent.composingRange) }
-            is TerminalIntent.SubmitCommand -> submit(intent.rawCommand)
+                reduce { TerminalReducer.updateStagedInput(it, intent.stagedText, intent.composingRange, intent.cursorIndex) }
+            is TerminalIntent.SubmitCommand -> submit(intent.rawCommand, intent.sessionId)
             is TerminalIntent.SwitchSession -> switchTo(intent.sessionId)
             TerminalIntent.CreateSession -> {
                 reduce { TerminalReducer.createSession(it, sessionEnvironment.defaultWorkingDirectory()) }
@@ -75,7 +75,10 @@ class TerminalViewModel @Inject constructor(
         emitRestartIme()
     }
 
-    private fun submit(rawCommand: String) {
+    private fun submit(rawCommand: String, stagedSessionId: String? = null) {
+        // A line staged in a session that is no longer active (closed by an earlier `exit` of the
+        // same paste, or switched away from) must not run in whichever session is active now.
+        if (stagedSessionId != null && stagedSessionId != model.activeSessionId) return
         val session = model.activeSession ?: return
         val sessionId = session.sessionId
         val line = rawCommand.trimEnd('\r', '\n')
@@ -160,10 +163,17 @@ class TerminalViewModel @Inject constructor(
     }
 
     private fun kill(sessionId: String) {
-        if (model.session(sessionId) == null) return
-        reduce {
-            TerminalReducer.appendLines(it, sessionId, listOf(TerminalRenderedLine(sessionId, "^C", TerminalLineKind.COMMAND_ECHO)))
+        val session = model.session(sessionId) ?: return
+        if (!session.isProcessRunning && !repository.isRunning(sessionId)) {
+            // CMD at an idle prompt: Ctrl+C abandons the staged line. Never destroy the idle
+            // persistent shell (its exported variables and other state would be lost).
+            reduce {
+                val echoed = TerminalReducer.echoCommand(it, sessionId, session.stagedInput + "^C")
+                TerminalReducer.clearStagedInput(echoed, sessionId)
+            }
+            return
         }
+        reduce { TerminalReducer.echoInterrupt(it, sessionId) }
         viewModelScope.launch {
             try {
                 repository.kill(sessionId)

@@ -320,6 +320,44 @@ class TerminalViewModelTest {
     }
 
     @Test
+    fun ctrlCAtIdlePromptAbandonsStagedLineWithoutKillingTheShell() = runTest(dispatcher) {
+        viewModel.dispatch(TerminalIntent.UpdateStagedInput("dir fo", null))
+        viewModel.dispatch(TerminalIntent.KillActiveProcess("session-1"))
+        advanceUntilIdle()
+        assertTrue(repository.killed.isEmpty())
+        assertEquals("", active.stagedInput)
+        assertEquals(TerminalRenderedLine("session-1", "C:\\> dir fo^C", TerminalLineKind.COMMAND_ECHO), state.terminalLines.last())
+    }
+
+    @Test
+    fun linesStagedInAClosedSessionAreDropped() = runTest(dispatcher) {
+        translator.result = { raw, _ ->
+            if (raw == "exit") TranslationResult.BuiltInAction(BuiltInTerminalAction.EXIT_SESSION)
+            else TranslationResult.Translated(raw, raw, null)
+        }
+        viewModel.dispatch(TerminalIntent.CreateSession) // session-2 active
+        viewModel.dispatch(TerminalIntent.SubmitCommand("exit", sessionId = "session-2"))
+        viewModel.dispatch(TerminalIntent.SubmitCommand("rm -r tmp", sessionId = "session-2"))
+        advanceUntilIdle()
+        assertEquals("session-1", state.activeSessionId)
+        assertTrue(repository.executions.isEmpty())
+        assertTrue(state.terminalLines.none { "rm -r tmp" in it.text })
+    }
+
+    @Test
+    fun stdinEchoJoinsThePendingPromptLine() = runTest(dispatcher) {
+        viewModel.dispatch(TerminalIntent.SubmitCommand("read-name"))
+        advanceUntilIdle()
+        repository.output.emit(TerminalOutputChunk("session-1", "Name: ", isStdErr = false))
+        advanceUntilIdle()
+        viewModel.dispatch(TerminalIntent.SubmitCommand("bob"))
+        repository.output.emit(TerminalOutputChunk("session-1", "hi bob\n", isStdErr = false))
+        advanceUntilIdle()
+        val texts = state.terminalLines.map { it.text }
+        assertEquals(listOf("Name: bob", "hi bob"), texts.takeLast(2))
+    }
+
+    @Test
     fun inputWhileProcessRunsGoesToStdin() = runTest(dispatcher) {
         viewModel.dispatch(TerminalIntent.SubmitCommand("cat"))
         advanceUntilIdle()
