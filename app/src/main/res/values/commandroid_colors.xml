@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <color name="commandroid_terminal_background">#FF1E1E1E</color>
+    <color name="commandroid_terminal_stdout">#FFD4D4D4</color>
+    <color name="commandroid_terminal_stderr">#FFF44747</color>
+    <color name="commandroid_terminal_command_echo">#FF9CDCFE</color>
+    <color name="commandroid_terminal_banner">#FF569CD6</color>
+    <color name="commandroid_terminal_diagnostic">#FFCCA700</color>
+    <color name="commandroid_prompt_prefix">#FF4EC9B0</color>
+    <color name="commandroid_prompt_staged">#FFD4D4D4</color>
+    <color name="commandroid_prompt_composing">#FFCE9178</color>
+    <color name="commandroid_prompt_cursor">#B3D4D4D4</color>
+    <color name="commandroid_modifier_bar_background">#FF252526</color>
+    <color name="commandroid_modifier_key_text">#FFD4D4D4</color>
+    <color name="commandroid_modifier_key_background">#FF333337</color>
+    <color name="commandroid_modifier_key_active">#FF0E639C</color>
+</resources>
