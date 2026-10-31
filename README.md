@@ -73,6 +73,16 @@ The bootstrap must be built from source with
 `app/build/outputs/apk/debug/commandroid-line_debug_<abi|universal>.apk`. CI
 uploads the universal APK on its own as the artifact
 `commandroid-line-debug-<sha>`, so a download holds exactly one APK to install.
+That APK has no bootstrap.
+
+**The installable APK with bash, node and git** comes from the bootstrap
+workflow. After a successful bootstrap build,
+[`bootstrap-apk.yml`](.github/workflows/bootstrap-apk.yml) uploads
+`commandroid-line-debug-bootstrap-aarch64-<sha>`, which holds
+`commandroid-line_bootstrap-aarch64_universal.apk` for arm64 phones. Uninstall
+any earlier debug build first, because every CI run signs with a fresh debug
+key. On first launch the app installs the bootstrap into its prefix, which
+takes a minute or two. The notice bar then reads "Termux-compatible runtime".
 
 ## Status
 

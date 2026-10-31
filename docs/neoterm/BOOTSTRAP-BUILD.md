@@ -326,6 +326,28 @@ following:
    record holds the commit, source revision, image ID and prepared source diff.
    A failed or timed-out build uploads its log instead.
 
+When both architectures built and verified, the `apk` job calls
+[`.github/workflows/bootstrap-apk.yml`](../../.github/workflows/bootstrap-apk.yml),
+which is also runnable by hand (`workflow_dispatch`, input `bootstrap_run_id`)
+once it is on the default branch. It:
+
+1. Downloads the run's bootstrap artifacts, checks each recorded SHA-256 and
+   runs `verify-artifact` again with this commit's tools.
+2. Builds `:app:assembleDebug -PcommandroidBootstrapDir=<aarch64 dir>`. It
+   checks that the APK holds `assets/bootstrap/bootstrap-aarch64.zip` and no
+   x86_64 archive, then uploads
+   `commandroid-line-debug-bootstrap-aarch64-<sha>` (APK, its SHA-256 and the
+   verifier output, kept 30 days).
+3. On API 34 and API 36 x86_64 emulators, installs a build that bundles the
+   x86_64 archive. It starts the app and waits for `$PREFIX/bin/bash`
+   ([`tools/ci/emulator-bootstrap-install.sh`](../../tools/ci/emulator-bootstrap-install.sh)),
+   records the `bash`, `node`, `npm` and `git` versions, and then runs
+   `:app:connectedDebugAndroidTest`. This is the only place
+   `InteractiveReadinessTest.compatPrefixBashAndNodeSeeAnInteractiveTerminal`
+   runs instead of skipping.
+
+None of this job has run yet: no bootstrap build has succeeded.
+
 GitHub's default runners may not fit a cold 120-package build within the job
 limit. Node.js/V8 in particular can take a long time on a few cores. Timing on
 GitHub has not been measured. If the limit is hit, a larger runner or a

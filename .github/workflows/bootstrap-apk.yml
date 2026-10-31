@@ -1,0 +1,164 @@
+name: commandroid-line APK with bootstrap
+
+# Turns the archives of a successful "commandroid-line bootstrap" run into installable debug
+# APKs, and runs the instrumented suite on emulators with the bootstrap installed (the only
+# place the bash/node/git prefix test runs). Called by bootstrap.yml after its build job, or
+# run by hand from the Actions tab with the ID of an earlier successful bootstrap run (manual
+# runs need this file on the default branch).
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_run_id:
+        description: Run ID of a successful "commandroid-line bootstrap" workflow run
+        required: true
+  workflow_call:
+    inputs:
+      bootstrap_run_id:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TERMUX_APP_VERSION_NAME: 0.118.3-commandroid.1
+  TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
+  SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download bootstrap artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: commandroid-line-bootstrap-*
+          path: ${{ runner.temp }}/artifacts
+          run-id: ${{ inputs.bootstrap_run_id }}
+          github-token: ${{ github.token }}
+      # The archives were verified when built; check their recorded checksums and verify them
+      # again with this commit's tools before anything is packaged.
+      - name: Check checksums and re-verify archives
+        run: |
+          set -euo pipefail
+          for arch in aarch64 x86_64; do
+            zip="$(find "$RUNNER_TEMP/artifacts" -name "bootstrap-$arch.zip" | head -n 1)"
+            if [ -z "$zip" ]; then
+              echo "::error::No bootstrap-$arch.zip in run ${{ inputs.bootstrap_run_id }}"
+              exit 1
+            fi
+            (cd "$(dirname "$zip")" && sha256sum -c "bootstrap-$arch.zip.sha256")
+            python3 tools/bootstrap/bootstrap.py verify-artifact "$zip" --arch "$arch" \
+              | tee "$RUNNER_TEMP/verify-$arch.json"
+            mkdir -p "$RUNNER_TEMP/bootstrap-$arch"
+            cp "$zip" "$RUNNER_TEMP/bootstrap-$arch/"
+          done
+      - name: Java 17 for Android SDK tools and Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '12266719'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install pinned Android toolchain
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;22.1.7171670'
+      - name: Build the phone APK (aarch64 bootstrap)
+        env:
+          TERMUX_APK_VERSION_TAG: bootstrap-aarch64
+        run: ./gradlew --no-daemon --max-workers=2 :app:assembleDebug -PcommandroidBootstrapDir="$RUNNER_TEMP/bootstrap-aarch64"
+      - name: Check the APK carries the bootstrap
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/commandroid-line_bootstrap-aarch64_universal.apk
+          unzip -l "$apk" | grep -E ' assets/bootstrap/bootstrap-aarch64\.zip$'
+          if unzip -l "$apk" | grep -q 'assets/bootstrap/bootstrap-x86_64.zip'; then
+            echo "::error::Phone APK unexpectedly carries the x86_64 bootstrap"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp "$apk" "$RUNNER_TEMP/apk/"
+          cp "$RUNNER_TEMP/verify-aarch64.json" "$RUNNER_TEMP/apk/"
+          (cd "$RUNNER_TEMP/apk" && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256" && cat ./*.sha256)
+      # Install on the phone after uninstalling any earlier debug build (debug keys differ per run).
+      - name: Upload the phone APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: commandroid-line-debug-bootstrap-aarch64-${{ env.SOURCE_COMMIT }}
+          path: ${{ runner.temp }}/apk/
+          retention-days: 30
+          if-no-files-found: error
+
+  prefix-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [34, 36]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download bootstrap artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: commandroid-line-bootstrap-*
+          path: ${{ runner.temp }}/artifacts
+          run-id: ${{ inputs.bootstrap_run_id }}
+          github-token: ${{ github.token }}
+      - name: Check checksum and re-verify the x86_64 archive
+        run: |
+          set -euo pipefail
+          zip="$(find "$RUNNER_TEMP/artifacts" -name bootstrap-x86_64.zip | head -n 1)"
+          [ -n "$zip" ] || { echo "::error::No bootstrap-x86_64.zip in run ${{ inputs.bootstrap_run_id }}"; exit 1; }
+          (cd "$(dirname "$zip")" && sha256sum -c bootstrap-x86_64.zip.sha256)
+          python3 tools/bootstrap/bootstrap.py verify-artifact "$zip" --arch x86_64 > /dev/null
+          mkdir -p "$RUNNER_TEMP/bootstrap-x86_64"
+          cp "$zip" "$RUNNER_TEMP/bootstrap-x86_64/"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Java 17 for Android SDK tools and Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '12266719'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install pinned Android toolchain
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;22.1.7171670'
+      # Each script line runs in its own shell and the runner stops at the first failing line,
+      # so status and logcat share a line, as in debug_build.yml.
+      - name: Install the bootstrap, then run the connected tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            mkdir -p build/ci-logs
+            s=0; tools/ci/emulator-bootstrap-install.sh "${{ runner.temp }}/bootstrap-x86_64" 900 > build/ci-logs/bootstrap-install-api${{ matrix.api-level }}.txt 2>&1 || s=$?; cat build/ci-logs/bootstrap-install-api${{ matrix.api-level }}.txt; exit $s
+            status=0; ./gradlew --continue :app:connectedDebugAndroidTest -PcommandroidBootstrapDir="${{ runner.temp }}/bootstrap-x86_64" --no-daemon --max-workers=2 || status=$?; adb logcat -d > build/ci-logs/logcat-api${{ matrix.api-level }}.txt || true; exit $status
+      - name: Upload androidTest reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commandroid-line-bootstrap-androidTest-api${{ matrix.api-level }}-${{ env.SOURCE_COMMIT }}
+          path: |
+            app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**
+            build/ci-logs/
+          retention-days: 30
+          if-no-files-found: ignore
