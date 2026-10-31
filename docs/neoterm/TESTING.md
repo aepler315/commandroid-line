@@ -49,7 +49,7 @@ Reports:
 | `:app:testCompatDebugUnitTest` / `:app:testSystemDebugUnitTest` | 53 tests pass in each (local) |
 | `:app:lintCompatDebug` / `:app:lintSystemDebug` | 0 errors (local) |
 | Debug and androidTest APKs, both flavors | build (local) |
-| `:app:connectedCompatDebugAndroidTest` / `:app:connectedSystemDebugAndroidTest` | **pending first CI run** on emulators. Not run locally: the development container has no KVM. |
+| `:app:connectedCompatDebugAndroidTest` / `:app:connectedSystemDebugAndroidTest` | CI emulators (`.github/workflows/debug_build.yml`) at `e606a3a`, see below. Not run locally: the development container has no KVM. |
 | Galaxy S26 Ultra ([DEVICE-TEST-PROTOCOL.md](DEVICE-TEST-PROTOCOL.md)) | **not run** |
 | Agent CLIs ([AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md)) | **not run** |
 
@@ -92,14 +92,50 @@ tests.
 
 - `CompositionInstrumentationTest` runs the shared IME contract on a device.
 - `NativePtyCompositionInstrumentationTest` drives the real activity, controller,
-  JNI PTY and `/system/bin/sh`.
+  JNI PTY and `/system/bin/sh`, and pins the per-flavor application ID.
 
-The suite must also contain PTY integration tests for shell interrupts (Ctrl-C
-reaches the foreground job and the shell survives), session lifecycle, command
-submission (Transmit without Enter, Enter alone), Unicode input and process
-restarts. These are being added alongside this documentation change. Their
-results are pending the first CI run. The instrumented tests call Android's IME
-interfaces directly and do not drive a third-party keyboard.
+PTY integration tests in `app/src/androidTest/java/com/commandroid/integration`
+(shared harness: `PtyTestSupport.kt`) run against the real `TermuxActivity`,
+`TermuxService`, JNI PTY and the session's shell:
+
+- `ShellInterruptTest`: Ctrl-C (`0x03`) interrupts a foreground `sleep` and a
+  shell loop, SIGINT reaches the foreground child's process group, and Ctrl-D
+  ends `cat` with EOF. The shell survives each time.
+- `SessionLifecycleTest`: switching sessions clears the draft and input reaches
+  only the current session; exiting one session removes it while another keeps
+  working.
+- `CommandSubmissionTest`: Transmit writes without executing and Enter submits
+  exactly once; Enter with a pending draft does not submit; IME commit, editor
+  actions and hardware Enter in the draft never submit; CMD mode writes the POSIX
+  translation for review and runs it only on Enter.
+- `UnicodeInputTest`: precomposed, CJK, supplementary-plane emoji, combining and
+  ZWJ sequences arrive byte-exact and are shown by the emulator.
+- `ProcessRestartTest`: a SIGKILLed shell ends only its own session, and new
+  sessions work repeatedly without leaking finished sessions.
+- `InteractiveReadinessTest`: ttys and `TERM`, window size and SIGWINCH, a
+  raw-mode arrow key read byte-exact, a bracketed-paste multi-line Transmit read
+  raw, the alternate screen, and the compat prefix's bash/node/git. That last test
+  is skipped (JUnit assumption) when no bootstrap is installed.
+
+These tests write key bytes with `TerminalSession.write` and resize with
+`TerminalSession.updateSize`. They do not inject key events through
+`TerminalView` or the extra keys. They call Android's IME interfaces directly and
+do not drive a third-party keyboard.
+
+CI emulators, both flavors: **API 34** (Android 14) and **API 36** (Android 16,
+the Galaxy S26 Ultra's release).
+
+- **API 34**: every test passes in both flavors (head `4a2c9c8`). The compat
+  prefix test is skipped, because the CI compat APK is built without a bootstrap,
+  so the compat runtime (bash, node, git) has no instrumented coverage yet.
+- **API 36**: added after `4a2c9c8`; first results are **pending**.
+- **API 30** (Android 11) ran until `4a2c9c8`, where every test passed. It was
+  dropped because no target device runs it. Android 11's toybox `stty` refused
+  every option that changes the tty mode (`-icanon`, `-echo`, `-isig`, `-icrnl`).
+  The raw-key and bracketed-paste tests therefore still have a canonical-tty
+  path for images below API 34. It ends the input line and checks the bytes
+  exactly. Interactive CLIs set raw mode themselves through termios, and the
+  app's job is byte-exact PTY delivery. From API 34 raw mode is required.
 
 ## Behavior matrix
 

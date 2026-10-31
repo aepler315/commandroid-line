@@ -1,5 +1,11 @@
 # Standalone execution ledger
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](ARCHITECTURE.md); current results are in
+> [TESTING.md](TESTING.md).
+
 Plan: docs/superpowers/plans/2026-10-29-standalone.md
 Base: b650b532. Branch feature/neoterm-standalone. User explicitly requests separate
 installation, superseding initial compatibility milestone restrictions.

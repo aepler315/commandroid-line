@@ -73,7 +73,10 @@ It is the only place where the runtimes differ in code:
   outside the staging prefix. With no asset, compat only prepares the system-shell
   directories. system always just prepares HOME and TMPDIR.
 - `runtimeNotice()`: the text shown in `neoterm_runtime_notice`. In compat it
-  says whether a bootstrap is present.
+  says whether a prefix is installed (`$PREFIX/bin/bash` exists), not whether the
+  APK bundles a bootstrap. The bootstrap installs in the background on first
+  launch, and the notice is refreshed when the first session starts, so once the
+  install has finished it reads "Termux-compatible runtime".
 
 The `stageCommandroidBootstrap` task in `app/build.gradle` stages the bootstrap
 asset from `-PcommandroidBootstrapDir=<dir>`. The directory holds files named
@@ -150,14 +153,17 @@ new ADR.
 ### CMD rewrite path
 
 The **CMD** checkbox (`neoterm_cmd`) installs a `CmdTransmitTransform` as
-`InputEngine.transform` and opens the composer. At Transmit, each line of the
-draft goes to `TranslateCommandUseCase`, together with the current session's
-working directory (`TerminalSession.getCwd()`) and an environment snapshot from
-`FlavorRuntime.shellEnvironment`. The result decides what happens:
+`InputEngine.transform` and opens the composer. At Transmit, the draft goes to
+`TranslateCommandUseCase`, together with the working directory of the session's
+foreground job (`TerminalSession.getCwd()`) and an environment snapshot from
+`FlavorRuntime.shellEnvironment`. A multi-line draft is translated as one
+`&`-chained CMD command, so the translator's deletion guard tracks every
+directory a preceding `cd` may have reached. When the foreground job's working
+directory is unknown, the Transmit is refused instead of guessing. The result
+decides what happens:
 
-- `Translated`: the line becomes the POSIX command. A `cd` updates the predicted
-  directory for the following lines.
-- `BuiltInAction`: the line becomes `clear`, `exit`, or a `printf` that lists the
+- `Translated`: the draft becomes the POSIX command.
+- `BuiltInAction`: the result is `clear`, `exit`, or a `printf` that lists the
   supported subset.
 - `UnsupportedCommandError`: the whole Transmit returns `SendResult.REFUSED`.
   Nothing is written and the draft is kept. The reason (`lastRefusal`) is shown in

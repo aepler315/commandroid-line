@@ -45,6 +45,18 @@ class StandaloneIdentityTest {
         assertFalse(TermuxConstants.TERMUX_FILES_DIR_PATH.startsWith("/data/data/com.termux/"))
     }
 
+    @Test fun userVisibleRuntimeTextNamesThisApp() {
+        val texts = listOf(R.string.neoterm_runtime_notice, R.string.neoterm_runtime_error,
+            R.string.neoterm_runtime_error_body, R.string.neoterm_unsupported_profile_body).map { context.getString(it) }
+        texts.forEach { assertFalse(it, it.contains("NeoTerm")) }
+        assertTrue(context.getString(R.string.neoterm_runtime_error).startsWith("commandroid-line"))
+        assertTrue(context.getString(R.string.neoterm_unsupported_profile_body).contains("Open commandroid-line"))
+        // The system shell cannot run them, so the notice must not promise bundled CLIs.
+        val notice = context.getString(R.string.neoterm_runtime_notice)
+        assertFalse(notice, notice.contains("not bundled yet"))
+        assertTrue(notice, notice.contains("compat"))
+    }
+
     @Test fun manifestComponentsKeepExistingJavaClassesInsideOwnPackage() {
         val launcher = packageManager.getLaunchIntentForPackage(context.packageName)
         assertNotNull(launcher)

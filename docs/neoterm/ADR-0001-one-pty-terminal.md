@@ -115,7 +115,10 @@ SDK 34, so only Android's `/system/bin/sh` and platform binaries could run.
   `:cmd-translator`.
 - The CMD rewrite predicts `cd` across lines of a multi-line draft from a snapshot
   of the session's working directory and environment; the shell may have changed
-  either since. It is a prediction only.
+  either since. It is a prediction only. A multi-line draft is therefore
+  translated as one `&`-chained command, so the deletion guard tracks every
+  directory a preceding `cd` may have reached, and translation is refused when
+  the working directory of the session's foreground job is unknown.
 - Interactive programs, signals and window size are now the upstream emulator's
   behavior, covered by upstream and new PTY integration tests rather than by a
   bespoke pipe protocol.

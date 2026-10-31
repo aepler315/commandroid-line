@@ -1,5 +1,11 @@
 # Standalone NeoTerm verification
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](ARCHITECTURE.md); current results are in
+> [TESTING.md](TESTING.md).
+
 This ledger applies to the `com.neoterm` Android system-shell development build.
 The implementation follows base `b650b532` on `feature/neoterm-standalone`.
 Record the exact tested source revision or dirty-tree diff with each run.

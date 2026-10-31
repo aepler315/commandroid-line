@@ -27,10 +27,20 @@ Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
   ADR-0001, DEVICE-TEST-PROTOCOL.md (Galaxy S26 Ultra), AGENT-CLI-ACCEPTANCE.md
   and `tools/acceptance/agent-cli-check.sh`, a POSIX sh pre-check run inside the
   app terminal.
+- Follow-ups: PTY integration tests in
+  `app/src/androidTest/java/com/commandroid/integration` and an emulator CI job
+  (API 34 and 36, both flavors; API 30 ran until `4a2c9c8`, where it passed,
+  and was then dropped because no target device runs Android 11). Android 11's
+  toybox `stty` cannot change the tty mode, so below API 34 the raw-mode tests
+  check byte-exact PTY delivery through a canonical tty. From API 34 raw mode is
+  required. `agent-cli-check.sh` now requires exit 0 and
+  a well-formed version for every `--version` check, passes `--interrupt` only
+  when the foreground job died of SIGINT, and accepts `COMMANDROID_RUNTIME` as
+  well as `NEOTERM_RUNTIME`. Pre-PR #2 documents carry a historical banner.
 - Verification: JVM suites pass locally (neoterm-input 28, cmd-translator 44,
   terminal-emulator 145, app 53 per flavor), lint reports 0 errors for both
-  flavors, and both flavors' debug and androidTest APKs build. The instrumented
-  suite is pending its first CI run. The device matrix, the source-built
+  flavors, and both flavors' debug and androidTest APKs build (at `85bb558`;
+  instrumented CI results are under Follow-ups). The device matrix, the source-built
   bootstrap and the agent CLIs have **not** been run or verified.
 
 ## commandroid spec rebuild: SDK 34 toolchain (2026-10-29)

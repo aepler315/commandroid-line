@@ -1,5 +1,11 @@
 # Standalone NeoTerm implementation plan
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](../../neoterm/ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](../../neoterm/ARCHITECTURE.md); current results are in
+> [TESTING.md](../../neoterm/TESTING.md).
+
 Spec: docs/superpowers/specs/2026-10-29-standalone-design.md
 User authorization: latest request for standalone and Continue; routine choices delegated.
 

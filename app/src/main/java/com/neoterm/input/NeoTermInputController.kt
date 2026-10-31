@@ -8,6 +8,7 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.CompoundButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import com.commandroid.runtime.FlavorRuntime
@@ -25,6 +26,18 @@ class NeoTermInputController(private val activity: TermuxActivity) {
     private val compose = activity.findViewById<Button>(R.id.neoterm_compose)
     private val cmd = activity.findViewById<CheckBox>(R.id.neoterm_cmd)
     private val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+    private val runtimeNotice = activity.findViewById<TextView>(R.id.neoterm_runtime_notice)
+    // Commandroid CMD translation is a Transmit rewrite into the PTY session; it never runs commands.
+    private val cmdListener = CompoundButton.OnCheckedChangeListener { _, checked ->
+        editor.engine.transform = if (checked) cmdTransform() else null
+        if (checked) {
+            editor.engine.openComposer()
+            status.setText(R.string.commandroid_cmd_on)
+        } else {
+            status.setText(R.string.neoterm_draft_label)
+        }
+        render(true)
+    }
 
     init {
         editor.addTextChangedListener(object : TextWatcher {
@@ -48,18 +61,8 @@ class NeoTermInputController(private val activity: TermuxActivity) {
             activity.findViewById<View>(id).setOnClickListener { inputView().requestFocus() }
         }
         compose.setOnClickListener { editor.engine.openComposer(); render(true) }
-        activity.findViewById<TextView>(R.id.neoterm_runtime_notice).setText(FlavorRuntime.runtimeNotice())
-        // Commandroid CMD translation is a Transmit rewrite into the PTY session; it never runs commands.
-        cmd.setOnCheckedChangeListener { _, checked ->
-            editor.engine.transform = if (checked) cmdTransform() else null
-            if (checked) {
-                editor.engine.openComposer()
-                status.setText(R.string.commandroid_cmd_on)
-            } else {
-                status.setText(R.string.neoterm_draft_label)
-            }
-            render(true)
-        }
+        refreshRuntimeNotice()
+        cmd.setOnCheckedChangeListener(cmdListener)
         activity.findViewById<View>(R.id.neoterm_keys).setOnClickListener {
             activity.toggleTerminalToolbar()
             inputView().requestFocus()
@@ -84,9 +87,20 @@ class NeoTermInputController(private val activity: TermuxActivity) {
 
     fun onSessionChanged(session: TerminalSession?) {
         editor.engine.bindSession(session?.mHandle)
+        // CMD is per session: a new session (often an agent CLI or REPL) never inherits translation.
+        editor.engine.transform = null
+        cmd.setOnCheckedChangeListener(null)
+        cmd.isChecked = false
+        cmd.setOnCheckedChangeListener(cmdListener)
+        // Sessions are created after the flavor's runtime install, which can change the notice.
+        refreshRuntimeNotice()
         status.setText(R.string.neoterm_draft_label)
         render(false)
         imm.restartInput(editor)
+    }
+
+    fun refreshRuntimeNotice() {
+        runtimeNotice.setText(FlavorRuntime.runtimeNotice())
     }
 
     fun inputView(): View = if (editor.engine.isComposing) editor else activity.terminalView
@@ -95,16 +109,29 @@ class NeoTermInputController(private val activity: TermuxActivity) {
 
     private fun cmdTransform() = CmdTransmitTransform(
         workingDirectory = {
-            val session = activity.currentSession
-            File(session?.cwd ?: FlavorRuntime.shellEnvironment(activity).defaultWorkingDirectoryPath)
+            activity.currentSession?.let { session ->
+                CmdTransmitTransform.foregroundWorkingDirectory(session.pid, { session.cwd }, ::readProcStat, ::readProcCwd)
+            }
         },
-        environment = {
-            val session = activity.currentSession
-            val env = FlavorRuntime.shellEnvironment(activity)
+        environment = { cwd ->
             CmdTransmitTransform.parseEnvironment(
-                env.buildEnvironment(activity, false, session?.cwd ?: env.defaultWorkingDirectoryPath))
+                FlavorRuntime.shellEnvironment(activity).buildEnvironment(activity, false, cwd.path))
         },
     )
+
+    private fun readProcStat(pid: Int): String? = try {
+        File("/proc/$pid/stat").bufferedReader().use { it.readLine() }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Like TerminalSession.getCwd: an unresolvable link canonicalizes to itself. */
+    private fun readProcCwd(pid: Int): String? = try {
+        val link = File("/proc/$pid/cwd")
+        link.canonicalPath.takeIf { it != link.path && it.startsWith("/") }
+    } catch (_: Exception) {
+        null
+    }
 
     private fun target(): TerminalTarget? {
         val session = activity.currentSession ?: return null

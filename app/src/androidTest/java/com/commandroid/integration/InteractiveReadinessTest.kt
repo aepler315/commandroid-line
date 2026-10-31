@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.commandroid.integration
 
+import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.commandroid.runtime.FlavorRuntime
 import com.termux.R
@@ -89,11 +90,14 @@ class InteractiveReadinessTest {
             h.run(shell, "$STTY_RAW; ${printValue("RAWUP", nonce, RAW_STATE)}; " +
                 "rk=\$(dd bs=1 count=3 2>/dev/null | $HEX_PIPE); stty sane; " +
                 printValue("RAW", nonce, "\"\$sttyStatus:\$rk\""))
-            assertRawTty(h.awaitValue(shell, "RAWUP", nonce))
-            // Cursor-up as TerminalView sends it in normal cursor-key mode.
-            h.write(shell, "\u001b[A")
-            assertEquals("Raw mode did not pass ESC [ A through unchanged (stty status:hex)", "0:1b5b41",
-                h.awaitValue(shell, "RAW", nonce, 10_000))
+            val state = h.awaitValue(shell, "RAWUP", nonce)
+            val raw = isRawTty(state)
+            // Cursor-up as TerminalView sends it in normal cursor-key mode; a canonical tty also
+            // needs the line ended before dd sees the bytes.
+            h.write(shell, if (raw) "\u001b[A" else "\u001b[A\r")
+            val read = h.awaitValue(shell, "RAW", nonce, 10_000)
+            assertEquals("PTY did not pass ESC [ A through unchanged (raw=$raw; refused stty options:hex = $read; $state)",
+                "1b5b41", read.substringAfter(':'))
         }
     }
 
@@ -108,7 +112,7 @@ class InteractiveReadinessTest {
             h.run(shell, "printf '\\033[?2004h'; $STTY_RAW; ${printValue("BPUP", nonce, RAW_STATE)}; " +
                 "bp=\$(dd bs=1 count=$count 2>/dev/null | $HEX_PIPE); stty sane; printf '\\033[?2004l'; " +
                 printValue("BP", nonce, "\"\$sttyStatus:\$bp\""))
-            assertRawTty(h.awaitValue(shell, "BPUP", nonce))
+            val raw = isRawTty(h.awaitValue(shell, "BPUP", nonce))
             waitUntil("Emulator did not enter bracketed paste mode") {
                 h.onMain { shell.emulator.isBracketedPasteModeEnabled }
             }
@@ -117,8 +121,12 @@ class InteractiveReadinessTest {
             h.commitDraft(body)
             h.click(R.id.neoterm_transmit)
             assertEquals(h.onMain { it.getString(R.string.neoterm_transmitted) }, h.status())
+            // A canonical tty releases the paste's last line only once it is ended. The extra
+            // newline is not part of the count dd reads, so the payload check stays byte-exact.
+            if (!raw) h.write(shell, "\r")
             val received = h.awaitValue(shell, "BP", nonce, 10_000, "Reader did not receive the paste")
-            assertEquals("Bracketed paste did not arrive intact (stty status:hex)", "0:" + utf8Hex(payload), received)
+            assertEquals("Bracketed paste did not arrive intact (refused stty options:hex = $received)",
+                utf8Hex(payload), received.substringAfter(':'))
             waitUntil("Reader did not leave bracketed paste mode") {
                 h.onMain { !shell.emulator.isBracketedPasteModeEnabled }
             }
@@ -180,17 +188,26 @@ class InteractiveReadinessTest {
     }
 
     /**
-     * [state] is "<stty exit status>:<stty -a>" taken right after entering raw mode. Fails with the
-     * actual termios settings when the tty is still canonical or echoing, instead of a read timeout.
+     * [state] is "<refused stty options or 0>:<stty -a>|err=<stty's error text>", taken right after
+     * trying to enter raw mode. Returns whether the tty is non-canonical and non-echoing.
+     *
+     * Interactive CLIs set raw mode themselves through termios (node/libuv, Rust crossterm); the
+     * platform's toybox stty is only this test's way to do it without a bootstrap. Android 11's
+     * toybox stty refuses every option that would change the mode (CI, API 30: -icanon, -echo,
+     * -isig and -icrnl refused, already-set options accepted), so on such images the byte-exact
+     * delivery is checked through a canonical tty instead. From API 34, where toybox stty works
+     * (CI, API 34), raw mode is required so a regression there still fails.
      */
-    private fun assertRawTty(state: String) {
-        val settings = state.substringAfter(':').split(' ', ';').map { it.trim() }
-        assertTrue("stty could not enter raw mode; status:settings = $state",
-            state.startsWith("0:") && "-icanon" in settings && "-echo" in settings)
+    private fun isRawTty(state: String): Boolean {
+        val settings = state.substringAfter(':').substringBefore("|err=").split(' ', ';').map { it.trim() }
+        val raw = "-icanon" in settings && "-echo" in settings
+        if (!raw) assertTrue("stty could not enter raw mode on API ${Build.VERSION.SDK_INT}; refused:settings = $state",
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        return raw
     }
 
     private companion object {
         /** stty's status and the resulting settings on one line (no CR/LF; -opost is in effect). */
-        const val RAW_STATE = "\"\$sttyStatus:\$(stty -a 2>&1 | tr '\\r\\n' '  ')\""
+        const val RAW_STATE = "\"\$sttyStatus:\$(stty -a 2>&1 | tr '\\r\\n' '  ')|err=\$sttyErr\""
     }
 }

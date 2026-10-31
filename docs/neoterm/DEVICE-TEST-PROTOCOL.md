@@ -138,7 +138,7 @@ One UI background settings: open Settings › Apps › commandroid-line › Batt
 set **Unrestricted**. Also make sure the app is not in Settings › Battery ›
 Background usage limits › **Sleeping apps** / **Deep sleeping apps**; add it to
 **Never sleeping apps**. Menu names vary between One UI versions, so record the
-path you actually used. Test once with the defaults first (section 7, rows B1–B3).
+path you actually used. Test once with the defaults first (section 6.4, rows B1–B3).
 
 ## 6. Manual input matrix
 

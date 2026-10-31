@@ -1,5 +1,11 @@
 # Standalone NeoTerm development build
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](../../neoterm/ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](../../neoterm/ARCHITECTURE.md); current results are in
+> [TESTING.md](../../neoterm/TESTING.md).
+
 The user's latest correction and instruction to continue supersede Milestone 1's
 com.termux identity restriction. The next APK must identify as NeoTerm/com.neoterm,
 use its own UID/private paths and never update or access an existing Termux app.

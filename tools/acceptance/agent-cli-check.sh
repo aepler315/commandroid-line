@@ -10,8 +10,8 @@
 # or system settings, writes no files itself, and runs each agent CLI only with
 # --version and stdin from /dev/null (a CLI may still touch its own config).
 # It never prints the environment, credentials or API keys. Of the environment
-# it only reports TERM, COLORTERM, the locale variables, PREFIX, HOME and
-# NEOTERM_RUNTIME.
+# it only reports TERM, COLORTERM, the locale variables, PREFIX, HOME,
+# COMMANDROID_RUNTIME and NEOTERM_RUNTIME.
 #
 # Results are PASS, FAIL or SKIP. INFO lines are not counted. The exit status is
 # 1 if any check failed, 0 otherwise. A SKIP of a CLI means "not installed",
@@ -19,8 +19,9 @@
 #
 # Interactive checks (off by default):
 #   --resize     waits up to 30 s for a SIGWINCH; rotate or resize the window.
-#   --interrupt  runs `sleep 20`; press Ctrl-C. Checks that the foreground job
-#                gets SIGINT while this script and its parent shell survive.
+#   --interrupt  runs `sleep 20`; press Ctrl-C. PASSes only if that foreground
+#                sleep was killed by SIGINT (status 130), and checks that this
+#                script and its parent shell survive.
 
 PASS=0
 FAIL=0
@@ -35,7 +36,7 @@ for arg in "$@"; do
         --resize) DO_RESIZE=1 ;;
         --interrupt) DO_INTERRUPT=1 ;;
         -h|--help)
-            sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -52,9 +53,10 @@ info() { printf 'INFO  %-22s %s\n' "$1" "$2"; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Runs a command with stdin closed and sets OUT to the first line of its output
-# (control characters removed, at most 100 characters) and STATUS to its exit
-# status. Uses timeout(1) when available so a hanging CLI cannot block the run.
+# Runs a command with stdin closed. Sets STATUS to its exit status, RAW to its
+# combined output with control characters removed, and OUT to the first line of
+# RAW (at most 100 characters). Uses timeout(1) when available so a hanging CLI
+# cannot block the run.
 capture() {
     if have timeout; then
         raw=$(timeout "$TIMEOUT_SECONDS" "$@" </dev/null 2>&1)
@@ -62,16 +64,40 @@ capture() {
         raw=$("$@" </dev/null 2>&1)
     fi
     STATUS=$?
-    OUT=$(printf '%s\n' "$raw" | sed -n '1{s/[[:cntrl:]]//g;p;}' | cut -c1-100)
+    RAW=$(printf '%s\n' "$raw" | sed 's/[[:cntrl:]]//g')
+    OUT=$(printf '%s\n' "$RAW" | sed -n '1p' | cut -c1-100)
 }
 
-# Leading integer of a version string such as "v20.11.1" -> 20.
-major_of() { printf '%s\n' "$1" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p'; }
+# Extended regular expressions for `--version` output, matched per line.
+NODE_VERSION_RE='^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'
+NPM_VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'
+GIT_VERSION_RE='^git version [0-9]+\.[0-9]+\.[0-9]+'
+# A CLI may decorate its version ("2.0.14 (Claude Code)", "codex-cli 0.46.0"),
+# so any free-standing <major>.<minor>.<patch> token counts, but not one inside
+# a word such as a library file name ("libfoo.so.1.2.3").
+CLI_VERSION_RE='(^|[[:space:](@])v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?([[:space:])]|$)'
+
+# Checks the last capture: exit status 0 and an output line matching the ERE
+# in $2. On success sets VERSION to that line (at most 100 characters) and
+# returns 0; otherwise records a FAIL for $1 and returns 1.
+version_ok() {
+    VERSION=""
+    if [ "$STATUS" -ne 0 ]; then
+        fail "$1" "--version exited with status $STATUS: ${OUT:-<no output>}"
+        return 1
+    fi
+    VERSION=$(printf '%s\n' "$RAW" | grep -E "$2" | sed -n '1p' | cut -c1-100)
+    if [ -z "$VERSION" ]; then
+        fail "$1" "--version printed no version: ${OUT:-<no output>}"
+        return 1
+    fi
+    return 0
+}
 
 printf 'commandroid-line agent CLI check (%s)\n\n' "$(date 2>/dev/null)"
 
 # --- Runtime ----------------------------------------------------------------
-info runtime "NEOTERM_RUNTIME=${NEOTERM_RUNTIME:-<unset>} PREFIX=${PREFIX:-<unset>}"
+info runtime "COMMANDROID_RUNTIME=${COMMANDROID_RUNTIME:-<unset>} NEOTERM_RUNTIME=${NEOTERM_RUNTIME:-<unset>} PREFIX=${PREFIX:-<unset>}"
 info home "HOME=${HOME:-<unset>}"
 info arch "$(uname -m 2>/dev/null)"
 case "${PREFIX:-}" in
@@ -90,7 +116,9 @@ case "${PREFIX:-}" in
     *)
         fail prefix-identity "unexpected PREFIX (expected .../com.commandroid_line/files/usr)" ;;
 esac
-if [ "${NEOTERM_RUNTIME:-}" = "android-system" ]; then
+# The system-shell fallback exports COMMANDROID_RUNTIME=system-shell; older
+# builds export only NEOTERM_RUNTIME=android-system. Either one means fallback.
+if [ "${COMMANDROID_RUNTIME:-}" = "system-shell" ] || [ "${NEOTERM_RUNTIME:-}" = "android-system" ]; then
     fail runtime-shell "Android system shell runtime; install the compat bootstrap"
 else
     pass runtime-shell "not the Android system-shell fallback"
@@ -147,12 +175,13 @@ info unicode "visual check: é ñ ü 中文 日本語 한국어 👩‍💻 e$(p
 # --- Toolchain from the compat bootstrap -----------------------------------
 if have node; then
     capture node --version
-    node_version=$OUT
-    node_major=$(major_of "$node_version")
-    if [ -n "$node_major" ] && [ "$node_major" -ge 18 ]; then
-        pass node "$node_version"
-    else
-        fail node "$node_version (expected 18 or newer; to be confirmed per CLI)"
+    if version_ok node "$NODE_VERSION_RE"; then
+        node_major=$(printf '%s\n' "$VERSION" | sed 's/^v\([0-9][0-9]*\)\..*/\1/')
+        if [ "$node_major" -ge 18 ]; then
+            pass node "$VERSION"
+        else
+            fail node "$VERSION (expected 18 or newer; to be confirmed per CLI)"
+        fi
     fi
 else
     fail node "node not found on PATH"
@@ -160,7 +189,8 @@ fi
 for tool in npm git; do
     if have "$tool"; then
         capture "$tool" --version
-        if [ "$STATUS" -eq 0 ]; then pass "$tool" "$OUT"; else fail "$tool" "--version failed: $OUT"; fi
+        if [ "$tool" = npm ]; then re=$NPM_VERSION_RE; else re=$GIT_VERSION_RE; fi
+        if version_ok "$tool" "$re"; then pass "$tool" "$VERSION"; fi
     else
         fail "$tool" "$tool not found on PATH"
     fi
@@ -170,11 +200,7 @@ done
 for cli in claude codex opencode; do
     if have "$cli"; then
         capture "$cli" --version
-        if [ "$STATUS" -eq 0 ] && [ -n "$OUT" ]; then
-            pass "$cli" "$OUT"
-        else
-            fail "$cli" "--version failed (status $STATUS): ${OUT:-<no output>}"
-        fi
+        if version_ok "$cli" "$CLI_VERSION_RE"; then pass "$cli" "$VERSION"; fi
     else
         skip "$cli" "not installed (acceptance not met)"
     fi
@@ -213,12 +239,19 @@ if [ "$DO_INTERRUPT" -eq 1 ]; then
         sleep 20
         sleep_status=$?
         trap - INT
-        if [ "$got_int" -eq 1 ] && [ "$sleep_status" -gt 128 ]; then
-            pass sigint-foreground "sleep ended by a signal (status $sleep_status); script survived"
+        # 130 = 128 + SIGINT(2): the foreground sleep itself was interrupted.
+        if [ "$sleep_status" -eq 130 ]; then
+            if [ "$got_int" -eq 1 ]; then
+                pass sigint-foreground "sleep killed by SIGINT (status 130); script saw SIGINT and survived"
+            else
+                pass sigint-foreground "sleep killed by SIGINT (status 130); script survived"
+            fi
+        elif [ "$sleep_status" -gt 128 ]; then
+            fail sigint-foreground "sleep ended by signal $((sleep_status - 128)), not SIGINT (status $sleep_status)"
         elif [ "$got_int" -eq 1 ]; then
-            pass sigint-foreground "SIGINT delivered; script survived"
+            fail sigint-foreground "SIGINT reached this script but not the foreground sleep (status $sleep_status)"
         else
-            fail sigint-foreground "no SIGINT seen within 20 s"
+            fail sigint-foreground "sleep was not interrupted within 20 s (status $sleep_status)"
         fi
         if kill -0 "$parent" 2>/dev/null; then
             pass parent-shell "parent shell (pid $parent) still alive"

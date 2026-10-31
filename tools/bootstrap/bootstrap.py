@@ -27,6 +27,8 @@ BASE_CHANGED_FILES = ("scripts/properties.sh", "packages/apt/build.sh", "package
 # with identical contents; each entry in config.json records how that was verified.
 REPIN_FILE = re.compile(r"(?:packages|x11-packages|root-packages)/[a-z0-9][a-z0-9+.-]*/build\.sh")
 SHA256 = re.compile(r"[0-9a-f]{64}")
+# URL rewrites only move a download; the pinned checksum still verifies the content.
+URL_PREFIX = re.compile(r"https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~%+-]+)*/")
 MACHINES = {"aarch64": 183, "arm": 40, "i686": 3, "x86_64": 62}
 # An accidental edit must never silently select another app's sandbox.
 IDENTITY = {
@@ -41,6 +43,23 @@ FOREIGN_PREFIX = re.compile(rb"(?:/data/data|/data/user/[0-9]+)/(com\.(?:termux|
 PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*")
 # Executables that must exist when an extra package is requested.
 EXTRA_EXECUTABLES = {"nodejs-lts": ("bin/node",), "git": ("bin/git",)}
+# Inserted into build-bootstraps.sh build_package() (see prepared_file).
+SUBPACKAGE_PARENT_SNIPPET = """\tlocal package_name="$2"
+
+\t# commandroid-line: build a subpackage-only name (bzip2) through its parent (libbz2).
+\tlocal package_dir parent_dir
+\tif ! compgen -G "$TERMUX_PACKAGES_DIRECTORY/*packages/$package_name/build.sh" >/dev/null; then
+\t\tfor package_dir in packages root-packages x11-packages; do
+\t\t\tparent_dir="$(find "$TERMUX_PACKAGES_DIRECTORY/$package_dir" -mindepth 2 -maxdepth 2 \\
+\t\t\t\t-name "$package_name.subpackage.sh" -printf '%h\\n' 2>/dev/null | head -n 1)"
+\t\t\tif [ -n "$parent_dir" ]; then
+\t\t\t\techo "[*] '$package_name' is a subpackage of '$(basename "$parent_dir")'; building that"
+\t\t\t\tpackage_name="$(basename "$parent_dir")"
+\t\t\t\tbreak
+\t\t\tfi
+\t\tdone
+\tfi
+"""
 RUNTIME_DIRS = ("bin/", "lib/", "libexec/", "etc/", "var/lib/dpkg/")
 
 
@@ -75,11 +94,26 @@ def configuration():
         require(isinstance(repin["verified"], str) and len(repin["verified"]) >= 20,
                 "checksum_repins entries must record how the new archive was verified")
     config["checksum_repins"] = repins
+    rewrites = config.get("source_url_rewrites", [])
+    require(isinstance(rewrites, list), "source_url_rewrites must be a list")
+    for rewrite in rewrites:
+        require(isinstance(rewrite, dict) and set(rewrite) == {"file", "old", "new", "count", "verified"},
+                "source_url_rewrites entries need exactly file, old, new, count and verified")
+        require(REPIN_FILE.fullmatch(rewrite["file"]) is not None, f"Unsafe source_url_rewrites file: {rewrite['file']}")
+        require(rewrite["file"] not in BASE_CHANGED_FILES, "source_url_rewrites cannot target an identity-edited file")
+        require(all(isinstance(rewrite[k], str) and URL_PREFIX.fullmatch(rewrite[k]) for k in ("old", "new"))
+                and rewrite["old"] != rewrite["new"], "source_url_rewrites old/new must be distinct https URL prefixes")
+        require(isinstance(rewrite["count"], int) and rewrite["count"] >= 1, "source_url_rewrites count must be >= 1")
+        require(isinstance(rewrite["verified"], str) and len(rewrite["verified"]) >= 20,
+                "source_url_rewrites entries must record how the new location was verified")
+    config["source_url_rewrites"] = rewrites
     return config
 
 
 def changed_files(config):
-    return BASE_CHANGED_FILES + tuple(sorted({repin["file"] for repin in config["checksum_repins"]}))
+    edited = {repin["file"] for repin in config["checksum_repins"]}
+    edited |= {rewrite["file"] for rewrite in config["source_url_rewrites"]}
+    return BASE_CHANGED_FILES + tuple(sorted(edited))
 
 
 def replace_once(text, old, new):
@@ -122,10 +156,16 @@ def prepared_file(source, relative, config):
         original = replace_once(original, old, new)
     elif relative != "scripts/build-bootstraps.sh":
         repins = [repin for repin in config["checksum_repins"] if repin["file"] == relative]
-        require(repins, f"No source edit is defined for {relative}")
+        rewrites = [rewrite for rewrite in config["source_url_rewrites"] if rewrite["file"] == relative]
+        require(repins or rewrites, f"No source edit is defined for {relative}")
         for repin in repins:
             # Only the exact pinned digest is replaced; any other upstream drift is refused.
             original = replace_once(original, repin["old"], repin["new"])
+        for rewrite in rewrites:
+            found = original.count(rewrite["old"])
+            require(found == rewrite["count"],
+                    f"Pinned source differs: expected {rewrite['count']} occurrences of {rewrite['old']!r} in {relative}, found {found}")
+            original = original.replace(rewrite["old"], rewrite["new"])
     else:
         # Upstream's local-source builder otherwise leaves both substitutions empty:
         # the package-manager variable is set only in child build-package processes,
@@ -134,6 +174,13 @@ def prepared_file(source, relative, config):
                                 "\nset -e\n\nexport TERMUX_PACKAGE_MANAGER=apt\n\nexport TERMUX_SCRIPTDIR")
         original = replace_once(original, 'add_termux_bootstrap_second_stage_files "$package_arch"',
                                 'add_termux_bootstrap_second_stage_files "$TERMUX_ARCH"')
+        # The default package list names bzip2, which is only a subpackage of libbz2. This
+        # revision's build-package.sh then fails with "No package bzip2 found in any of the
+        # enabled repositories", which build_package's "No build.sh script" exception does not
+        # match; upstream's usual download-based bootstrap flow never reaches it. Build such a
+        # name through the package whose *.subpackage.sh produces it; build-package.sh skips a
+        # parent that an earlier dependency build already produced.
+        original = replace_once(original, '\tlocal package_name="$2"\n', SUBPACKAGE_PARENT_SNIPPET)
     return original
 
 
@@ -224,6 +271,18 @@ def relative_path(name):
         part not in ("", ".", "..") for part in name.rstrip("/").split("/"))
 
 
+def symlink_destination(name):
+    """SYMLINKS.txt destination relative to the prefix, or None if it is unsafe.
+
+    build-bootstraps.sh writes each line from `find . -type l`, so destinations look like
+    `./bin/sh`; exactly one leading './' is removed and everything else must be a plain
+    relative path (no '..', '.', empty or absolute components).
+    """
+    if name.startswith("./"):
+        name = name[2:]
+    return name if relative_path(name) else None
+
+
 def foreign_prefix(data):
     match = FOREIGN_PREFIX.search(data)
     return match.group(1).decode() if match else None
@@ -246,10 +305,11 @@ def verify_artifact(archive_path, arch, config, include_extra=True):
         links = {}
         for line in archive.read("SYMLINKS.txt").decode().splitlines():
             require(line.count("←") == 1, "Malformed bootstrap symlink entry")
-            target, name = line.split("←")
+            target, raw_name = line.split("←")
             require(target and "\\" not in target, "Empty or invalid symlink target")
-            require(relative_path(name) and name not in links and name not in names,
-                    f"Unsafe or duplicate symlink destination: {name}")
+            name = symlink_destination(raw_name)
+            require(name is not None and name not in links and name not in names,
+                    f"Unsafe or duplicate symlink destination: {raw_name}")
             normalized_target = posixpath.normpath(target)
             require(not target.startswith("/data/") or normalized_target.startswith(config["prefix"] + "/"),
                     f"Symlink escapes commandroid-line's private prefix: {target}")

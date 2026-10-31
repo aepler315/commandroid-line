@@ -18,7 +18,7 @@ class AndroidShellEnvironment(context: Context) : ShellEnvironmentClient {
     fun prepare() {
         for (directory in listOf(home, temporary)) {
             if (!directory.isDirectory && !directory.mkdirs())
-                throw IOException("Cannot create NeoTerm runtime directories")
+                throw IOException("Cannot create commandroid-line runtime directories")
         }
     }
 
@@ -31,7 +31,9 @@ class AndroidShellEnvironment(context: Context) : ShellEnvironmentClient {
             "TMPDIR=${temporary.absolutePath}", "PWD=${workingDirectory ?: home.absolutePath}",
             "PATH=/system/bin:/system/xbin", "SHELL=/system/bin/sh",
             "TERM=xterm-256color", "COLORTERM=truecolor", "LANG=C.UTF-8",
-            "NEOTERM_RUNTIME=android-system", "PS1=NeoTerm > "
+            "COMMANDROID_RUNTIME=system-shell", "PS1=commandroid-line > ",
+            // Kept for existing readers such as tools/acceptance/agent-cli-check.sh.
+            "NEOTERM_RUNTIME=android-system"
         )
         // Preserve Android runtime support for platform command wrappers, never arbitrary
         // inherited PATH, shell initialization or LD_PRELOAD/LD_LIBRARY_PATH injection.
