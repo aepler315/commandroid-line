@@ -59,6 +59,37 @@ class ConfigurationTest(unittest.TestCase):
     def test_extra_packages_are_optional(self):
         self.assertEqual(self.configure(extra_packages=[])["extra_packages"], [])
 
+    def repin(self, **changes):
+        entry = dict(json.loads(BOOTSTRAP.CONFIG_PATH.read_text())["checksum_repins"][0])
+        entry.update(changes)
+        return entry
+
+    def test_foot_repin_is_recorded_and_changes_tracked_files(self):
+        config = BOOTSTRAP.configuration()
+        self.assertEqual([r["file"] for r in config["checksum_repins"]], ["x11-packages/foot/build.sh"])
+        self.assertIn("x11-packages/foot/build.sh", BOOTSTRAP.changed_files(config))
+        self.assertIn("68f5eab0b0fa08becebbed412947ba19246c2518", config["checksum_repins"][0]["verified"])
+
+    def test_rejects_unsafe_repins(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe checksum_repins file"):
+            self.configure(checksum_repins=[self.repin(file="scripts/properties.sh")])
+        with self.assertRaisesRegex(ValueError, "Unsafe checksum_repins file"):
+            self.configure(checksum_repins=[self.repin(file="../x11-packages/foot/build.sh")])
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            self.configure(checksum_repins=[self.repin(new="not-a-digest")])
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            entry = self.repin(); entry["new"] = entry["old"]
+            self.configure(checksum_repins=[entry])
+        with self.assertRaisesRegex(ValueError, "verified"):
+            self.configure(checksum_repins=[self.repin(verified="")])
+        with self.assertRaisesRegex(ValueError, "exactly"):
+            entry = self.repin(); del entry["verified"]
+            self.configure(checksum_repins=[entry])
+
+    def test_repins_are_optional(self):
+        config = self.configure(checksum_repins=[])
+        self.assertEqual(BOOTSTRAP.changed_files(config), BOOTSTRAP.BASE_CHANGED_FILES)
+
     def test_build_args_include_extra_packages(self):
         config = BOOTSTRAP.configuration()
         self.assertEqual(BOOTSTRAP.build_args("x86_64", config),

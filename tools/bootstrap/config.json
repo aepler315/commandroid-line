@@ -10,12 +10,29 @@
   "prefix": "/data/data/com.commandroid_line/files/usr",
   "home": "/data/data/com.commandroid_line/files/home",
   "package_manager": "apt",
-  "extra_packages": ["nodejs-lts", "git"],
-  "architectures": ["aarch64", "arm", "i686", "x86_64"],
+  "extra_packages": [
+    "nodejs-lts",
+    "git"
+  ],
+  "architectures": [
+    "aarch64",
+    "arm",
+    "i686",
+    "x86_64"
+  ],
   "ndk_version": "27c",
   "ndk_revision": "27.2.12479018",
   "ndk_archive_sha256": "59c2f6dc96743b5daf5d1626684640b20a6bd2b1d85b13156b90333741bad5cc",
   "java_major": 17,
   "builder_base": "ubuntu:24.04",
-  "builder_image": "commandroid-line-package-builder:termux-5a6d1c1e"
+  "builder_image": "commandroid-line-package-builder:termux-5a6d1c1e",
+  "checksum_repins": [
+    {
+      "file": "x11-packages/foot/build.sh",
+      "url": "https://codeberg.org/dnkl/foot/archive/1.21.0.tar.gz",
+      "old": "b93b196a3fbab86678c54be627557bdc7b1fc8042d99b14c4a74b149f60bcd52",
+      "new": "18044ce49099b01ca1db3c6b1b23300fdaa23848577835a72ec9481f9713b4fe",
+      "verified": "2026-10-31: Codeberg regenerated this on-the-fly archive. Its extracted tree is identical (diff -r) to git tag 1.21.0, commit 68f5eab0b0fa08becebbed412947ba19246c2518; ncurses uses only foot.info from it."
+    }
+  ]
 }

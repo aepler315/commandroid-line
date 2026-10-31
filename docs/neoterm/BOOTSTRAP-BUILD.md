@@ -93,6 +93,22 @@ Preparation makes these narrowly scoped source changes:
   `TERMUX_ARCH` instead of the undefined `package_arch` to second-stage
   generation. Otherwise the package-manager and architecture substitutions in
   the second stage can be empty.
+- Checksum re-pins listed in `config.json` `checksum_repins`. Some hosts
+  (Codeberg, GitLab) generate `/archive/` tarballs on the fly. When one is
+  regenerated, its bytes and SHA-256 change even though its contents do not,
+  and the pinned build stops with "Wrong checksum". A re-pin replaces exactly
+  one pinned digest in one `build.sh`. It is added only after checking that
+  the new archive's extracted tree is identical to the upstream git tag, and
+  the entry records that check. Current re-pins:
+  - `x11-packages/foot/build.sh` (foot 1.21.0; ncurses compiles `foot.info`
+    from it). The first CI build failed on this archive. Its regenerated tree is
+    identical (`diff -r`) to tag `1.21.0`, commit
+    `68f5eab0b0fa08becebbed412947ba19246c2518`.
+
+  A static scan of the other on-the-fly archives in the bootstrap's dependency
+  closure (apt, libxslt, freedesktop and Codeberg sources) found every pinned
+  digest still matching, except libfcft 3.3.1. libfcft is a dependency of foot
+  itself, which this bootstrap does not build, so it has no re-pin.
 
 Each change must match its expected pinned upstream text exactly. The tool
 checks the effective properties by sourcing the real configuration. It rejects

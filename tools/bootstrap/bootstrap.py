@@ -21,8 +21,12 @@ import zipfile
 
 CONFIG_PATH = Path(__file__).with_name("config.json")
 MARKER = ".commandroid-line-bootstrap-source.json"
-CHANGED_FILES = ("scripts/properties.sh", "packages/apt/build.sh", "packages/termux-tools/build.sh",
-                 "scripts/build-bootstraps.sh")
+BASE_CHANGED_FILES = ("scripts/properties.sh", "packages/apt/build.sh", "packages/termux-tools/build.sh",
+                      "scripts/build-bootstraps.sh")
+# Re-pins replace a pinned source checksum only where an on-the-fly archive was regenerated
+# with identical contents; each entry in config.json records how that was verified.
+REPIN_FILE = re.compile(r"(?:packages|x11-packages|root-packages)/[a-z0-9][a-z0-9+.-]*/build\.sh")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 MACHINES = {"aarch64": 183, "arm": 40, "i686": 3, "x86_64": 62}
 # An accidental edit must never silently select another app's sandbox.
 IDENTITY = {
@@ -59,7 +63,23 @@ def configuration():
                                              for name in extras), "extra_packages must be termux package names")
     require(len(extras) == len(set(extras)), "Duplicate extra_packages entry")
     config["extra_packages"] = extras
+    repins = config.get("checksum_repins", [])
+    require(isinstance(repins, list), "checksum_repins must be a list")
+    for repin in repins:
+        require(isinstance(repin, dict) and set(repin) == {"file", "url", "old", "new", "verified"},
+                "checksum_repins entries need exactly file, url, old, new and verified")
+        require(REPIN_FILE.fullmatch(repin["file"]) is not None, f"Unsafe checksum_repins file: {repin['file']}")
+        require(SHA256.fullmatch(repin["old"]) and SHA256.fullmatch(repin["new"]) and repin["old"] != repin["new"],
+                "checksum_repins old/new must be distinct SHA-256 digests")
+        require(repin["file"] not in BASE_CHANGED_FILES, "checksum_repins cannot target an identity-edited file")
+        require(isinstance(repin["verified"], str) and len(repin["verified"]) >= 20,
+                "checksum_repins entries must record how the new archive was verified")
+    config["checksum_repins"] = repins
     return config
+
+
+def changed_files(config):
+    return BASE_CHANGED_FILES + tuple(sorted({repin["file"] for repin in config["checksum_repins"]}))
 
 
 def replace_once(text, old, new):
@@ -100,6 +120,12 @@ def prepared_file(source, relative, config):
 \tTERMUX_PKG_CONFFILES="$(grep -v '^etc/termux/mirrors/' "$TERMUX_PKG_BUILDDIR/conffiles" || true)"
 }'''
         original = replace_once(original, old, new)
+    elif relative != "scripts/build-bootstraps.sh":
+        repins = [repin for repin in config["checksum_repins"] if repin["file"] == relative]
+        require(repins, f"No source edit is defined for {relative}")
+        for repin in repins:
+            # Only the exact pinned digest is replaced; any other upstream drift is refused.
+            original = replace_once(original, repin["old"], repin["new"])
     else:
         # Upstream's local-source builder otherwise leaves both substitutions empty:
         # the package-manager variable is set only in child build-package processes,
@@ -123,8 +149,8 @@ def verify_source(source, config):
     require((source / MARKER).is_file() and (source / MARKER).read_text() == marker_contents(config),
             "Missing or stale preparation marker; use a fresh checkout with prepare")
     changed = set(run(["git", "-C", str(source), "diff", "--name-only", "HEAD"]).splitlines())
-    require(changed == set(CHANGED_FILES), f"Unexpected tracked source modifications: {sorted(changed)}")
-    for relative in CHANGED_FILES:
+    require(changed == set(changed_files(config)), f"Unexpected tracked source modifications: {sorted(changed)}")
+    for relative in changed_files(config):
         require((source / relative).read_text() == prepared_file(source, relative, config),
                 f"Source configuration drift in {relative}")
     # Source the actual properties script; checking only the configured JSON is insufficient.
@@ -151,7 +177,7 @@ def prepare(source, config):
                     config["source_url"], str(source)], check=True)
     require(run(["git", "-C", str(source), "rev-parse", "HEAD"]) == config["source_revision"],
             "Remote tag no longer matches the pinned revision; refusing to prepare")
-    for relative in CHANGED_FILES:
+    for relative in changed_files(config):
         (source / relative).write_text(prepared_file(source, relative, config))
     (source / MARKER).write_text(marker_contents(config))
     verify_source(source, config)
