@@ -92,7 +92,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api-level: [30, 34]
+        # API 36 is Android 16, the Galaxy S26 Ultra's release; API 34 keeps the last
+        # Android 14 baseline. API 30 was dropped: no target device runs it.
+        api-level: [34, 36]
     steps:
       - uses: actions/checkout@v4
       - name: Enable KVM

@@ -29,10 +29,11 @@ Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
   app terminal.
 - Follow-ups: PTY integration tests in
   `app/src/androidTest/java/com/commandroid/integration` and an emulator CI job
-  (API 30 and 34, both flavors). At `e606a3a` API 34 passes; API 30 fails only the
-  two raw-mode reads. Android 11's toybox `stty` cannot change the termios mode
-  at all, so below API 34 those tests check byte-exact PTY delivery through a
-  canonical tty, and from API 34 raw mode is required (`494cec8`, CI pending). `agent-cli-check.sh` now requires exit 0 and
+  (API 34 and 36, both flavors; API 30 ran until `4a2c9c8`, where it passed,
+  and was then dropped because no target device runs Android 11). Android 11's
+  toybox `stty` cannot change the tty mode, so below API 34 the raw-mode tests
+  check byte-exact PTY delivery through a canonical tty. From API 34 raw mode is
+  required. `agent-cli-check.sh` now requires exit 0 and
   a well-formed version for every `--version` check, passes `--interrupt` only
   when the foreground job died of SIGINT, and accepts `COMMANDROID_RUNTIME` as
   well as `NEOTERM_RUNTIME`. Pre-PR #2 documents carry a historical banner.

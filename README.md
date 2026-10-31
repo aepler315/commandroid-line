@@ -76,7 +76,7 @@ Verification state at commit `85bb558`:
 | --- | --- |
 | JVM suites (`:neoterm-input:test`, `:cmd-translator:test`, `:terminal-emulator:testDebugUnitTest`, `:app:testCompatDebugUnitTest`, `:app:testSystemDebugUnitTest`) | Pass locally (neoterm-input 28, cmd-translator 44, terminal-emulator 145, app 53 per flavor) |
 | Lint and debug/androidTest APK builds, both flavors | Pass locally |
-| Instrumented suite (`:app:connectedCompatDebugAndroidTest`, `:app:connectedSystemDebugAndroidTest`) on CI emulators | At `e606a3a`: API 34 passes in both flavors; API 30 fails only the two raw-mode reads, because Android 11's toybox `stty` cannot change the tty mode. Below API 34 those tests now check byte-exact delivery through a canonical tty (`494cec8`, CI pending; see [TESTING.md](docs/neoterm/TESTING.md)). The compat-prefix test is skipped (no bootstrap in CI). It cannot run in the development container (no KVM). |
+| Instrumented suite (`:app:connectedCompatDebugAndroidTest`, `:app:connectedSystemDebugAndroidTest`) on CI emulators, API 34 and API 36 (Android 16, as on the Galaxy S26 Ultra) | API 34 passes in both flavors. API 36 first results pending ([TESTING.md](docs/neoterm/TESTING.md)). The compat-prefix test is skipped (no bootstrap in CI). It cannot run in the development container (no KVM). |
 | Source-built compat bootstrap | Not built yet ([BOOTSTRAP-BUILD.md](docs/neoterm/BOOTSTRAP-BUILD.md)) |
 | Galaxy S26 Ultra device matrix ([DEVICE-TEST-PROTOCOL.md](docs/neoterm/DEVICE-TEST-PROTOCOL.md)) | Not run yet |
 | Claude Code, Codex, OpenCode in the compat runtime ([AGENT-CLI-ACCEPTANCE.md](docs/neoterm/AGENT-CLI-ACCEPTANCE.md)) | Not verified yet |

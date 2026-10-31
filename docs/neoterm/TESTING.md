@@ -122,23 +122,20 @@ These tests write key bytes with `TerminalSession.write` and resize with
 `TerminalView` or the extra keys. They call Android's IME interfaces directly and
 do not drive a third-party keyboard.
 
-CI results (emulators, both flavors, merged head `e606a3a`):
+CI emulators, both flavors: **API 34** (Android 14) and **API 36** (Android 16,
+the Galaxy S26 Ultra's release).
 
-- **API 34**: every test passes in both flavors. The compat prefix test is
-  skipped, because the CI compat APK is built without a bootstrap, so the compat
-  runtime (bash, node, git) has no instrumented coverage yet.
-- **API 30**: every test passes except the two raw-mode reads,
-  `InteractiveReadinessTest.rawModeDeliversAnArrowKeyByteExact` and
-  `bracketedPasteWrapsAMultiLineTransmitAndAReaderReceivesItIntact`. Android 11's
-  toybox `stty` rejected the combined raw-mode invocation and applied nothing.
-  Applied one at a time (`df69d25`), it refused every option that would change
-  the mode (`-icanon`, `-echo`, `-isig`, `-icrnl`) and accepted only options
-  already in effect. Interactive CLIs set raw mode themselves through termios.
-  The app's job is to deliver key and paste bytes through the PTY unchanged. So
-  since `494cec8`, where the platform `stty` cannot leave canonical mode
-  (below API 34), these two tests end the input line and still check the bytes
-  exactly. From API 34 raw mode is required. The CI result for `494cec8` and
-  later is **pending**.
+- **API 34**: every test passes in both flavors (head `4a2c9c8`). The compat
+  prefix test is skipped, because the CI compat APK is built without a bootstrap,
+  so the compat runtime (bash, node, git) has no instrumented coverage yet.
+- **API 36**: added after `4a2c9c8`; first results are **pending**.
+- **API 30** (Android 11) ran until `4a2c9c8`, where every test passed. It was
+  dropped because no target device runs it. Android 11's toybox `stty` refused
+  every option that changes the tty mode (`-icanon`, `-echo`, `-isig`, `-icrnl`).
+  The raw-key and bracketed-paste tests therefore still have a canonical-tty
+  path for images below API 34. It ends the input line and checks the bytes
+  exactly. Interactive CLIs set raw mode themselves through termios, and the
+  app's job is byte-exact PTY delivery. From API 34 raw mode is required.
 
 ## Behavior matrix
 
