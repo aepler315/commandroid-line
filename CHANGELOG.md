@@ -3,6 +3,25 @@
 Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
 (`com.neoterm`) and PR #2 builds. Their test counts and task names are historical.
 
+## Bootstrap identity in termux-tools; verify-artifact enforced (2026-10-31)
+
+- Bootstrap run 41215503863 built both architectures, but the archives are not
+  usable. termux-tools' `configure` falls back to `com.termux` paths unless
+  `TERMUX_APP_PACKAGE`, `TERMUX_PREFIX` and the related variables are exported.
+  So `login`, `pkg`, `chsh`, `motd.sh` and 12 other runtime files named
+  `/data/data/com.termux/files/usr`. `bootstrap.py` now exports them in
+  termux-tools' `termux_step_pre_configure`. It also points the four app
+  component names at `com.termux.app.*` (the Java namespace), not
+  `com.commandroid_line.app.*`.
+- The build job's verify step ran `verify-artifact | tee` without `pipefail`, so
+  its failure was masked and the job reported success. That step now uses
+  `set -euo pipefail`, and `bootstrap-apk.yml` caught the failure.
+- `verify-artifact` accepts an extra executable installed as a symlink (git's
+  `bin/git`). It allows one exact upstream comment in
+  `bin/termux-exec-ld-preload-lib`, and rejects app components in the
+  application-ID namespace. Both archives from that run pass every check once
+  termux-tools' own files are corrected, so a rebuild is expected to pass.
+
 ## One sideload app; system flavor removed (2026-10-31)
 
 - The owner decided commandroid-line will never be published on Google Play, so
