@@ -73,7 +73,8 @@ internal const val TRANSCRIPT_TAIL_LINES = 15
  * or the list of options the platform stty refused; callers check the resulting termios state.
  */
 internal const val STTY_RAW = "sttyBad=; for sttyOpt in -icanon -echo -isig -icrnl -ixon 'min 1' 'time 0'; do " +
-    "stty \$sttyOpt 2>/dev/null || sttyBad=\"\$sttyBad,\$sttyOpt\"; done; sttyStatus=\${sttyBad:-0}"
+    "stty \$sttyOpt 2>/dev/null || sttyBad=\"\$sttyBad,\$sttyOpt\"; done; sttyStatus=\${sttyBad:-0}; " +
+    "sttyErr=\$(stty -icanon 2>&1 >/dev/null | tr '\\r\\n' '  ')"
 
 internal const val HEX_PIPE = "od -An -v -tx1 | tr -d ' \\n'"
 
