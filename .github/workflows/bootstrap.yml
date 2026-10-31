@@ -1,0 +1,143 @@
+name: commandroid-line bootstrap (custom prefix source build)
+
+# Rebuilds the Termux bootstrap from pinned source for com.commandroid_line's
+# private prefix. Heavy: hours per ABI. Runs on demand, or on a pull request only
+# when the `bootstrap` label is added. Artifacts are retained for 30 days; never
+# commit them to the repository.
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+# Adding an unrelated label must not cancel a running bootstrap build.
+concurrency:
+  group: bootstrap-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || 'dispatch' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'bootstrap'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          df -h / /mnt || df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/lib/android \
+            /usr/share/swift /usr/local/share/boost /usr/local/share/powershell \
+            /usr/local/share/chromium /usr/local/lib/node_modules /usr/local/graalvm \
+            /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          df -h / /mnt || df -h /
+
+      - name: Bootstrap tooling regressions
+        run: python3 -m unittest discover -s tools/bootstrap -p 'test_*.py'
+
+      - name: Prepare pinned termux-packages source
+        run: |
+          src="$RUNNER_TEMP/termux-packages"
+          out="$RUNNER_TEMP/out"
+          # The second runner disk, when present, holds the package build trees.
+          if mountpoint -q /mnt; then topdir=/mnt/termux-build; else topdir="$RUNNER_TEMP/termux-build"; fi
+          sudo mkdir -p "$topdir"
+          sudo chown 1001:1001 "$topdir"
+          mkdir -p "$out"
+          {
+            echo "SRC=$src"
+            echo "OUT=$out"
+            echo "TOPDIR=$topdir"
+            echo "IMAGE=$(python3 -c 'import json; print(json.load(open("tools/bootstrap/config.json"))["builder_image"])')"
+          } >> "$GITHUB_ENV"
+          python3 tools/bootstrap/bootstrap.py prepare "$src"
+          python3 tools/bootstrap/bootstrap.py preflight "$src"
+
+      - name: Build package builder image
+        # No proxy CA is needed on GitHub runners; the Dockerfile's secret mount is optional.
+        run: |
+          docker build --platform=linux/amd64 \
+            --file tools/bootstrap/Dockerfile \
+            --tag "$IMAGE" \
+            "$SRC/scripts"
+          docker image inspect --format '{{.Id}}' "$IMAGE"
+
+      - name: Build bootstrap from source
+        # Leaves time within the job limit to upload the log of a timed-out build.
+        timeout-minutes: 300
+        run: |
+          set -o pipefail
+          python3 tools/bootstrap/bootstrap.py verify-source "$SRC"
+          build_args="$(python3 tools/bootstrap/bootstrap.py build-args --arch "$ARCH")"
+          echo "build-bootstraps.sh $build_args"
+          # Same seccomp profile as upstream scripts/run-docker.sh; the source and
+          # build trees are owned by UID 1001 (both the runner and the builder user).
+          docker run --rm --init --platform=linux/amd64 --user root \
+            --security-opt seccomp="$SRC/scripts/profile.json" \
+            --mount "type=bind,src=$SRC,dst=/home/builder/termux-packages" \
+            --mount "type=bind,src=$TOPDIR,dst=/home/builder/.termux-build" \
+            --env "BUILD_ARGS=$build_args" \
+            "$IMAGE" \
+            bash -ec 'chown -R builder:builder /home/builder/termux-packages /home/builder/.termux-build
+              exec su --whitelist-environment=BUILD_ARGS - builder -c \
+                "cd /home/builder/termux-packages && TERMUX_INSTALL_DEPS=false ./scripts/build-bootstraps.sh \$BUILD_ARGS"' \
+            2>&1 | tee "$OUT/build-$ARCH.log"
+
+      - name: Audit build log for downloaded target packages
+        run: |
+          # TERMUX_INSTALL_DEPS=false builds every dependency from source. A circular
+          # dependency makes upstream fall back to repository debs for another prefix.
+          if grep -niE 'A circular dependency was found|Downloading dependency|extracting .* to .*_cache-' "$OUT/build-$ARCH.log"; then
+            echo "::error::Build log shows downloaded target packages; refusing the archive."
+            exit 1
+          fi
+
+      - name: Verify artifact and record checksum
+        run: |
+          python3 tools/bootstrap/bootstrap.py verify-artifact "$SRC/bootstrap-$ARCH.zip" --arch "$ARCH" \
+            | tee "$OUT/verify-$ARCH.json"
+          cp "$SRC/bootstrap-$ARCH.zip" "$OUT/"
+          (cd "$OUT" && sha256sum "bootstrap-$ARCH.zip" > "bootstrap-$ARCH.zip.sha256" && cat "bootstrap-$ARCH.zip.sha256")
+          {
+            echo "repository_commit=$GITHUB_SHA"
+            echo "source_revision=$(git -C "$SRC" rev-parse HEAD)"
+            echo "builder_image_id=$(docker image inspect --format '{{.Id}}' "$IMAGE")"
+            echo "docker=$(docker version --format '{{.Server.Version}}')"
+            echo "runner=$ImageOS $ImageVersion"
+            echo "build_args=$(python3 tools/bootstrap/bootstrap.py build-args --arch "$ARCH")"
+            echo "--- prepared source diff ---"
+            git -C "$SRC" diff
+          } > "$OUT/provenance-$ARCH.txt"
+
+      - name: Upload bootstrap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: commandroid-line-bootstrap-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/out/bootstrap-${{ matrix.arch }}.zip
+            ${{ runner.temp }}/out/bootstrap-${{ matrix.arch }}.zip.sha256
+            ${{ runner.temp }}/out/build-${{ matrix.arch }}.log
+            ${{ runner.temp }}/out/verify-${{ matrix.arch }}.json
+            ${{ runner.temp }}/out/provenance-${{ matrix.arch }}.txt
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload build log after failure
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commandroid-line-bootstrap-${{ matrix.arch }}-failed-log-${{ github.sha }}
+          path: ${{ runner.temp }}/out/build-${{ matrix.arch }}.log
+          retention-days: 30
+          if-no-files-found: ignore
