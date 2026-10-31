@@ -138,11 +138,17 @@ git) has no instrumented coverage yet.
   is expected. It failed the same way on `main` (`8edfcb5`) for both former
   flavors, so it is specific to Android 16, not to targetSdk. Since `aaf200c` the test
   reports the draft, selection, focus owner, IME and whether the PTY saw the
-  command, then retries once after `restartInput`. Hypothesis, not yet
-  confirmed: the test commits the draft through its own InputConnection, which
-  invalidates the IME's; if Android 16's IME applies a hardware Enter through
-  its stale connection, the edit is dropped. Until that is resolved, hardware
-  Enter in the draft on Android 16 counts as **unverified**.
+  command, then retries once after `restartInput`. Its first run (`aaf200c`)
+  showed: the editor was focused and composing, the cursor was at the end, the
+  active IME was Gboard (`com.google.android.inputmethod.latin`; the API 34
+  image uses AOSP LatinIME), the draft was unchanged even after
+  `restartInput`, and nothing reached the PTY. So the "never submit" invariant
+  held, but the IME consumed the hardware Enter before the editor's
+  `onKeyDown`. `CompositionEditText` now takes a hardware Enter in
+  `onKeyPreIme`, before the IME. While the IME holds a composition, Enter is
+  left to the IME so it can confirm CJK candidates. The CI result of that fix
+  is **pending**. Real Gboard and Samsung Keyboard behaviour with a Bluetooth
+  keyboard is a device check (DEVICE-TEST-PROTOCOL.md).
 - **API 34, two-flavor build** (historical, head `4a2c9c8`): every test passed
   in both the compat and the former system flavor.
 - **API 36**: first run at `8edfcb5`; same single failure as above.

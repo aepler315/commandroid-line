@@ -141,6 +141,23 @@ class CompositionEditText @JvmOverloads constructor(context: Context, attrs: Att
         }
     }
 
+    // Hardware Enter is taken before the IME sees it. Android hands hardware keys to the IME
+    // first, and an IME may consume a physical Enter without editing the draft: on the API 36
+    // (Android 16) emulator image, Gboard does, so onKeyDown never ran and the draft got no line
+    // break. While the IME holds a composition (for example CJK candidates), Enter stays the
+    // IME's, because there it confirms the composition. Either way Enter never reaches the PTY.
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_ENTER && engine.isComposing && !event.isCtrlPressed &&
+            !event.isAltPressed && BaseInputConnection.getComposingSpanStart(text) < 0) {
+            return when (event.action) {
+                KeyEvent.ACTION_DOWN -> onKeyDown(keyCode, event)
+                KeyEvent.ACTION_UP -> true
+                else -> super.onKeyPreIme(keyCode, event)
+            }
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
+
     // Hardware Enter belongs to the local paragraph editor, never the terminal.
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_ENTER && !event.isCtrlPressed && !event.isAltPressed) {
