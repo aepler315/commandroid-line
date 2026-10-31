@@ -67,11 +67,13 @@ internal fun utf8Hex(text: String): String =
 internal const val TRANSCRIPT_TAIL_LINES = 15
 
 /**
- * Non-canonical, no-echo, no-signal input with explicit VMIN/VTIME: what a TUI's raw mode needs
- * for key bytes. Spelled out instead of toybox's `raw` combo so a missing combo flag on an older
- * toybox cannot leave the tty canonical. `$sttyStatus` keeps stty's exit status for the report.
+ * Non-canonical, no-echo, no-signal input with VMIN=1/VTIME=0: what a TUI's raw mode needs for
+ * key bytes. Each option is applied on its own: Android 11's toybox stty rejects the whole
+ * invocation (exit 1, nothing applied) when any one option is unsupported. `$sttyStatus` is "0"
+ * or the list of options the platform stty refused; callers check the resulting termios state.
  */
-internal const val STTY_RAW = "stty -icanon -echo -isig -icrnl -ixon min 1 time 0; sttyStatus=\$?"
+internal const val STTY_RAW = "sttyBad=; for sttyOpt in -icanon -echo -isig -icrnl -ixon 'min 1' 'time 0'; do " +
+    "stty \$sttyOpt 2>/dev/null || sttyBad=\"\$sttyBad,\$sttyOpt\"; done; sttyStatus=\${sttyBad:-0}"
 
 internal const val HEX_PIPE = "od -An -v -tx1 | tr -d ' \\n'"
 

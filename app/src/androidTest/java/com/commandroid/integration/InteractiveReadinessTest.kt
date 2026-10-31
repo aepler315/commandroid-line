@@ -92,8 +92,9 @@ class InteractiveReadinessTest {
             assertRawTty(h.awaitValue(shell, "RAWUP", nonce))
             // Cursor-up as TerminalView sends it in normal cursor-key mode.
             h.write(shell, "\u001b[A")
-            assertEquals("Raw mode did not pass ESC [ A through unchanged (stty status:hex)", "0:1b5b41",
-                h.awaitValue(shell, "RAW", nonce, 10_000))
+            val raw = h.awaitValue(shell, "RAW", nonce, 10_000)
+            assertEquals("Raw mode did not pass ESC [ A through unchanged (refused stty options:hex = $raw)",
+                "1b5b41", raw.substringAfter(':'))
         }
     }
 
@@ -118,7 +119,8 @@ class InteractiveReadinessTest {
             h.click(R.id.neoterm_transmit)
             assertEquals(h.onMain { it.getString(R.string.neoterm_transmitted) }, h.status())
             val received = h.awaitValue(shell, "BP", nonce, 10_000, "Reader did not receive the paste")
-            assertEquals("Bracketed paste did not arrive intact (stty status:hex)", "0:" + utf8Hex(payload), received)
+            assertEquals("Bracketed paste did not arrive intact (refused stty options:hex = $received)",
+                utf8Hex(payload), received.substringAfter(':'))
             waitUntil("Reader did not leave bracketed paste mode") {
                 h.onMain { !shell.emulator.isBracketedPasteModeEnabled }
             }
@@ -180,13 +182,14 @@ class InteractiveReadinessTest {
     }
 
     /**
-     * [state] is "<stty exit status>:<stty -a>" taken right after entering raw mode. Fails with the
-     * actual termios settings when the tty is still canonical or echoing, instead of a read timeout.
+     * [state] is "<refused stty options or 0>:<stty -a>" taken right after entering raw mode. A
+     * platform stty may refuse options a TUI does not need here; the tty must still end up
+     * non-canonical and non-echoing. Fails with the actual termios settings instead of a timeout.
      */
     private fun assertRawTty(state: String) {
         val settings = state.substringAfter(':').split(' ', ';').map { it.trim() }
-        assertTrue("stty could not enter raw mode; status:settings = $state",
-            state.startsWith("0:") && "-icanon" in settings && "-echo" in settings)
+        assertTrue("stty could not enter raw mode; refused:settings = $state",
+            "-icanon" in settings && "-echo" in settings)
     }
 
     private companion object {
