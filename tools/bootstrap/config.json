@@ -56,6 +56,13 @@
       "new": "https://nano-editor.org/dist/v8/",
       "count": 1,
       "verified": "2026-10-31: nano-8.3.tar.xz is no longer under dist/latest/ (404); dist/v8/ serves a file whose SHA-256 equals the pinned 551b717b\u2026f111e."
+    },
+    {
+      "file": "packages/dos2unix/build.sh",
+      "old": "https://waterlan.home.xs4all.nl/dos2unix/",
+      "new": "https://downloads.sourceforge.net/project/dos2unix/dos2unix/7.5.2/",
+      "count": 1,
+      "verified": "2026-10-31: waterlan.home.xs4all.nl now returns a 12 KB HTML page for dos2unix-7.5.2.tar.gz (bootstrap CI run 5 failed on it); dos2unix's SourceForge release mirror serves a 991485-byte file whose SHA-256 equals the pinned 26474244\u2026c4bf3a."
     }
   ]
 }

@@ -100,7 +100,8 @@ class ConfigurationTest(unittest.TestCase):
 
     def test_url_rewrites_are_recorded_and_changes_tracked_files(self):
         config = BOOTSTRAP.configuration()
-        files = ["packages/docbook-xml/build.sh", "packages/debianutils/build.sh", "packages/nano/build.sh"]
+        files = ["packages/docbook-xml/build.sh", "packages/debianutils/build.sh", "packages/nano/build.sh",
+                 "packages/dos2unix/build.sh"]
         self.assertEqual([r["file"] for r in config["source_url_rewrites"]], files)
         for name in files:
             self.assertIn(name, BOOTSTRAP.changed_files(config))

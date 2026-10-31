@@ -127,6 +127,9 @@ Preparation makes these narrowly scoped source changes:
     `snapshot.debian.org` at 20241115T204403Z; the file there matches the pin.
   - `packages/nano/build.sh`: 8.3 is no longer under `dist/latest/`. Use
     `dist/v8/`; the file there matches the pin.
+  - `packages/dos2unix/build.sh`: `waterlan.home.xs4all.nl` now serves an HTML
+    page in place of 7.5.2. Use dos2unix's SourceForge release mirror; the file
+    there matches the pin. The fifth CI build stopped here.
 
   An availability scan of the closure's download URLs (2026-10-31) found these
   three, plus GitHub archive and gnupg.org URLs that failed only through the
