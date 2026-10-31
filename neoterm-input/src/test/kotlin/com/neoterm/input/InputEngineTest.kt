@@ -179,4 +179,52 @@ class InputEngineTest {
         assertFalse(engine.toString().contains(draft.text))
         assertFalse(engine.phase.toString().contains(draft.text))
     }
+
+    @Test fun transformRewritesOnlyAtTransmit() {
+        engine.transform = TransmitTransform { Rewrite.Text("ls -la") }
+        text("dir")
+        assertTrue(target.writes.isEmpty())
+        assertEquals(SendResult.SENT, engine.transmit(target))
+        assertEquals(listOf("ls -la"), target.writes)
+        assertEquals("", draft.text)
+    }
+    @Test fun submitNeverAppliesTransform() {
+        engine.transform = TransmitTransform { fail("Submit must not translate"); Rewrite.Text("x") }
+        engine.setMode(InputMode.TEXT)
+        assertEquals(SendResult.SENT, engine.submit(target))
+        assertEquals(listOf("\r"), target.writes)
+    }
+    @Test fun refusedTransformKeepsDraftAndWritesNothing() {
+        engine.transform = TransmitTransform { Rewrite.Refused("regedit: not available") }
+        text("regedit")
+        assertEquals(SendResult.REFUSED, engine.transmit(target))
+        assertEquals("regedit: not available", engine.lastRefusal)
+        assertEquals("regedit", draft.text)
+        assertTrue(target.writes.isEmpty())
+    }
+    @Test fun transformOutputIsValidatedLikeDraft() {
+        engine.transform = TransmitTransform { Rewrite.Text("echo \u001b[2J") }
+        text("cls")
+        assertEquals(SendResult.UNSAFE_CONTROL, engine.transmit(target))
+        assertTrue(target.writes.isEmpty())
+        engine.transform = TransmitTransform { Rewrite.Text("cd a\ncd b") }
+        assertEquals(SendResult.BRACKETED_PASTE_REQUIRED, engine.transmit(target))
+        target.bracketedPaste = true
+        assertEquals(SendResult.SENT, engine.transmit(target))
+        assertEquals(listOf("\u001b[200~cd a\ncd b\u001b[201~"), target.writes)
+    }
+    @Test fun throwingTransformIsRefusedWithoutQuotingDraft() {
+        engine.transform = TransmitTransform { throw IllegalStateException("secret-draft") }
+        text("secret-draft")
+        assertEquals(SendResult.REFUSED, engine.transmit(target))
+        assertFalse(engine.lastRefusal!!.contains("secret"))
+        assertTrue(target.writes.isEmpty())
+    }
+    @Test fun refusalClearsOnNextTransmit() {
+        engine.transform = TransmitTransform { Rewrite.Refused("no") }
+        text("x"); engine.transmit(target)
+        engine.transform = null
+        assertEquals(SendResult.SENT, engine.transmit(target))
+        assertNull(engine.lastRefusal)
+    }
 }

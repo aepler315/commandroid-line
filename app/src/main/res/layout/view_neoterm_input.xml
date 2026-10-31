@@ -58,6 +58,13 @@
                 android:layout_height="match_parent"
                 android:minWidth="0dp"
                 android:text="@string/neoterm_keys" />
+            <CheckBox
+                android:id="@+id/neoterm_cmd"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/commandroid_cmd_description"
+                android:saveEnabled="false"
+                android:text="@string/commandroid_cmd" />
         </LinearLayout>
     </HorizontalScrollView>
 

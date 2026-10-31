@@ -66,7 +66,7 @@ class NativePtyCompositionInstrumentationTest {
     @Test fun correctedParagraphWaitsForTransmitAndSeparateTerminalEnter() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        assertEquals("com.neoterm", context.packageName)
+        assertEquals(com.termux.BuildConfig.APPLICATION_ID, context.packageName)
         val nonce = UUID.randomUUID().toString().replace("-", "")
         // Distinct from shell protocol markers, so it cannot already occur in command echo.
         val draftToken = "draft_" + UUID.randomUUID().toString().replace("-", "")
