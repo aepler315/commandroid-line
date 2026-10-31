@@ -86,10 +86,10 @@ class InteractiveReadinessTest {
         PtyHarness.launch().use { h ->
             val shell = h.openSession("itest raw")
             val nonce = newNonce()
-            h.run(shell, "$STTY_RAW; ${printMarker("RAWUP", nonce)}; " +
+            h.run(shell, "$STTY_RAW; ${printValue("RAWUP", nonce, RAW_STATE)}; " +
                 "rk=\$(dd bs=1 count=3 2>/dev/null | $HEX_PIPE); stty sane; " +
                 printValue("RAW", nonce, "\"\$sttyStatus:\$rk\""))
-            h.awaitMarker(shell, "RAWUP", nonce)
+            assertRawTty(h.awaitValue(shell, "RAWUP", nonce))
             // Cursor-up as TerminalView sends it in normal cursor-key mode.
             h.write(shell, "\u001b[A")
             assertEquals("Raw mode did not pass ESC [ A through unchanged (stty status:hex)", "0:1b5b41",
@@ -105,10 +105,10 @@ class InteractiveReadinessTest {
             val payload = "\u001b[200~$body\u001b[201~"
             val count = payload.toByteArray(Charsets.UTF_8).size
             // The reader enables bracketed paste like an agent's TUI does, then reads raw bytes.
-            h.run(shell, "printf '\\033[?2004h'; $STTY_RAW; ${printMarker("BPUP", nonce)}; " +
+            h.run(shell, "printf '\\033[?2004h'; $STTY_RAW; ${printValue("BPUP", nonce, RAW_STATE)}; " +
                 "bp=\$(dd bs=1 count=$count 2>/dev/null | $HEX_PIPE); stty sane; printf '\\033[?2004l'; " +
                 printValue("BP", nonce, "\"\$sttyStatus:\$bp\""))
-            h.awaitMarker(shell, "BPUP", nonce)
+            assertRawTty(h.awaitValue(shell, "BPUP", nonce))
             waitUntil("Emulator did not enter bracketed paste mode") {
                 h.onMain { shell.emulator.isBracketedPasteModeEnabled }
             }
@@ -177,5 +177,20 @@ class InteractiveReadinessTest {
                 assertTrue("git does not run from the prefix",
                     h.capture(shell, "GITV", "\"\$(git --version 2>&1)\"").startsWith("git version"))
         }
+    }
+
+    /**
+     * [state] is "<stty exit status>:<stty -a>" taken right after entering raw mode. Fails with the
+     * actual termios settings when the tty is still canonical or echoing, instead of a read timeout.
+     */
+    private fun assertRawTty(state: String) {
+        val settings = state.substringAfter(':').split(' ', ';').map { it.trim() }
+        assertTrue("stty could not enter raw mode; status:settings = $state",
+            state.startsWith("0:") && "-icanon" in settings && "-echo" in settings)
+    }
+
+    private companion object {
+        /** stty's status and the resulting settings on one line (no CR/LF; -opost is in effect). */
+        const val RAW_STATE = "\"\$sttyStatus:\$(stty -a 2>&1 | tr '\\r\\n' '  ')\""
     }
 }

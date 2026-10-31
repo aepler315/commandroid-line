@@ -185,8 +185,10 @@ internal class PtyHarness private constructor(val scenario: ActivityScenario<Ter
     fun <T> withTranscript(session: TerminalSession, block: () -> T): T = try {
         block()
     } catch (failure: AssertionError) {
-        val tail = transcript(session).trimEnd().lines().takeLast(TRANSCRIPT_TAIL_LINES).joinToString("\n")
-        throw AssertionError("${failure.message}\n--- transcript tail ---\n$tail", failure)
+        // One line: test runners often print only the first line of a failure message.
+        val tail = transcript(session).trimEnd().lines().takeLast(TRANSCRIPT_TAIL_LINES)
+            .joinToString(" ⏎ ") { it.trimEnd() }
+        throw AssertionError("${failure.message} | transcript tail: $tail", failure)
     }
 
     /** Emulator rows and columns, read on the main thread. */
