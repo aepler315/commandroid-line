@@ -5,7 +5,10 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import os
+import shutil
 import struct
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -134,7 +137,9 @@ class ArtifactValidationTest(unittest.TestCase):
         self.files = {name: bytes(elf) + prefix
                       for name in ("bin/bash", "bin/apt", "bin/dpkg", "bin/ls", "bin/node", "bin/git")}
         self.files.update({
-            "SYMLINKS.txt": b"bash\xe2\x86\x90bin/sh\n",
+            # Exact upstream format: build-bootstraps.sh writes `$(readlink "$link")←${link}` for each
+            # entry of `find . -type l`, so every destination starts with './'.
+            "SYMLINKS.txt": "bash←./bin/sh\n".encode(),
             "etc/apt/sources.list": b"# commandroid-line repository is not configured\n",
             "var/lib/dpkg/status": b"Package: bash\nStatus: install ok installed\n\n"
                                    b"Package: nodejs-lts\nStatus: install ok installed\n\n"
@@ -192,24 +197,76 @@ class ArtifactValidationTest(unittest.TestCase):
             self.validate()
 
     def test_rejects_symlink_escape(self):
-        self.files["SYMLINKS.txt"] = "../../outside←bin/sh\n".encode()
+        self.files["SYMLINKS.txt"] = "../../outside←./bin/sh\n".encode()
         with self.assertRaisesRegex(ValueError, "Relative symlink escapes"):
             self.validate()
 
     def test_rejects_foreign_app_symlink(self):
-        self.files["SYMLINKS.txt"] = "/data/data/com.termux/files/usr/bin/bash←bin/sh\n".encode()
+        self.files["SYMLINKS.txt"] = "/data/data/com.termux/files/usr/bin/bash←./bin/sh\n".encode()
         with self.assertRaisesRegex(ValueError, "Symlink escapes"):
             self.validate()
 
     def test_rejects_old_neoterm_symlink(self):
-        self.files["SYMLINKS.txt"] = "/data/data/com.neoterm/files/usr/bin/bash←bin/sh\n".encode()
+        self.files["SYMLINKS.txt"] = "/data/data/com.neoterm/files/usr/bin/bash←./bin/sh\n".encode()
         with self.assertRaisesRegex(ValueError, "Symlink escapes"):
             self.validate()
 
     def test_rejects_absolute_symlink_traversal(self):
-        self.files["SYMLINKS.txt"] = (self.config["prefix"] + "/../../outside←bin/sh\n").encode()
+        self.files["SYMLINKS.txt"] = (self.config["prefix"] + "/../../outside←./bin/sh\n").encode()
         with self.assertRaisesRegex(ValueError, "Symlink escapes"):
             self.validate()
+
+    def test_accepts_destination_without_dot_prefix(self):
+        self.files["SYMLINKS.txt"] = "bash←bin/sh\n".encode()
+        self.validate()
+
+    def test_accepts_node_bin_links_into_lib(self):
+        self.files["lib/node_modules/npm/bin/npm-cli.js"] = b"#!" + self.config["prefix"].encode() + b"/bin/node\n"
+        self.files["SYMLINKS.txt"] += "../lib/node_modules/npm/bin/npm-cli.js←./bin/npm\n".encode()
+        self.validate()
+
+    def test_rejects_unsafe_dot_prefixed_destinations(self):
+        for destination in ("./../outside", "././bin/sh", ".//bin/sh", "./", "./bin/./sh", "./bin/../sh",
+                            "/bin/sh", "../bin/sh", "./bin\\sh"):
+            with self.subTest(destination=destination):
+                self.files["SYMLINKS.txt"] = f"bash←{destination}\n".encode()
+                with self.assertRaisesRegex(ValueError, "Unsafe or duplicate symlink destination"):
+                    self.validate()
+
+    def test_rejects_duplicate_after_dot_prefix_normalization(self):
+        self.files["SYMLINKS.txt"] = "bash←./bin/sh\ndash←bin/sh\n".encode()
+        with self.assertRaisesRegex(ValueError, "Unsafe or duplicate symlink destination"):
+            self.validate()
+
+    def test_rejects_dot_prefixed_link_over_regular_file(self):
+        self.files["SYMLINKS.txt"] += "dash←./bin/ls\n".encode()
+        with self.assertRaisesRegex(ValueError, "Unsafe or duplicate symlink destination: ./bin/ls"):
+            self.validate()
+
+    def test_rejects_dot_prefixed_mirror_directory_link(self):
+        self.files["SYMLINKS.txt"] += "../../elsewhere←./etc/termux/mirrors/default\n".encode()
+        with self.assertRaisesRegex(ValueError, "Official Termux mirror definition"):
+            self.validate()
+
+    @unittest.skipUnless(all(shutil.which(tool) for tool in ("bash", "find", "readlink")),
+                         "needs bash, find and readlink")
+    def test_accepts_symlinks_written_by_upstream_loop(self):
+        # The loop below is copied from create_bootstrap_archive in the pinned build-bootstraps.sh.
+        with tempfile.TemporaryDirectory(prefix="commandroid-line-bootstrap-links-") as rootfs:
+            os.makedirs(Path(rootfs, "bin"))
+            os.makedirs(Path(rootfs, "lib/node_modules/npm/bin"))
+            os.symlink("bash", Path(rootfs, "bin/sh"))
+            os.symlink("../lib/node_modules/npm/bin/npm-cli.js", Path(rootfs, "bin/npm"))
+            subprocess.run(["bash", "-c", 'while read -r -d \'\' link; do\n'
+                            '\techo "$(readlink "$link")←${link}" >> SYMLINKS.txt\n'
+                            '\trm -f "$link"\n'
+                            'done < <(find . -type l -print0)'], cwd=rootfs, check=True)
+            symlinks = Path(rootfs, "SYMLINKS.txt").read_bytes()
+        self.assertEqual(sorted(symlinks.decode().splitlines()),
+                         ["../lib/node_modules/npm/bin/npm-cli.js←./bin/npm", "bash←./bin/sh"])
+        self.files["SYMLINKS.txt"] = symlinks
+        self.files["lib/node_modules/npm/bin/npm-cli.js"] = b"#!" + self.config["prefix"].encode() + b"/bin/node\n"
+        self.validate()
 
     def test_rejects_active_repository(self):
         self.files["etc/apt/sources.list"] = b"deb https://packages.termux.dev/apt/termux-main stable main\n"
@@ -222,7 +279,7 @@ class ArtifactValidationTest(unittest.TestCase):
             self.validate()
 
     def test_rejects_chosen_mirror_link(self):
-        self.files["SYMLINKS.txt"] += "mirrors/europe←etc/termux/chosen_mirrors\n".encode()
+        self.files["SYMLINKS.txt"] += "mirrors/europe←./etc/termux/chosen_mirrors\n".encode()
         with self.assertRaisesRegex(ValueError, "Official Termux mirror definition"):
             self.validate()
 

@@ -43,7 +43,8 @@ import static com.termux.shared.termux.TermuxConstants.TERMUX_STAGING_PREFIX_DIR
  *
  * <p>Upstream termux-app v0.118.3 TermuxInstaller logic, changed only to read the archive from
  * assets instead of a native library, and to refuse archive entries or symlink paths that would
- * land outside the staging prefix. The archive must have been built from source for
+ * land outside the staging prefix, and to make ELF and {@code #!} files executable wherever they
+ * are (see {@link BootstrapEntries}). The archive must have been built from source for
  * {@link TermuxConstants#TERMUX_PREFIX_DIR_PATH}; tools/bootstrap verifies that before bundling.
  */
 public final class BootstrapInstaller {
@@ -79,6 +80,7 @@ public final class BootstrapInstaller {
 
                     final String stagingRoot = new File(TERMUX_STAGING_PREFIX_DIR_PATH).getCanonicalPath() + File.separator;
                     final byte[] buffer = new byte[8096];
+                    final byte[] head = new byte[BootstrapEntries.HEADER_LENGTH];
                     final List<Pair<String, String>> symlinks = new ArrayList<>(50);
 
                     try (ZipInputStream zipInput = new ZipInputStream(new BufferedInputStream(activity.getAssets().open(assetPath)))) {
@@ -91,8 +93,8 @@ public final class BootstrapInstaller {
                                     String[] parts = line.split("←");
                                     if (parts.length != 2)
                                         throw new IOException("Malformed symlink line: " + line);
-                                    String newPath = TERMUX_STAGING_PREFIX_DIR_PATH + "/" + parts[1];
-                                    requireInside(stagingRoot, new File(newPath));
+                                    String newPath = BootstrapEntries.symlinkPath(TERMUX_STAGING_PREFIX_DIR_PATH, parts[1]);
+                                    BootstrapEntries.requireInside(stagingRoot, new File(newPath));
                                     symlinks.add(Pair.create(parts[0], newPath));
                                     error = FileUtils.createDirectoryFile(new File(newPath).getParentFile().getAbsolutePath());
                                     if (error != null) { showBootstrapErrorDialog(activity, whenDone, Error.getErrorMarkdownString(error)); return; }
@@ -100,21 +102,20 @@ public final class BootstrapInstaller {
                             } else {
                                 String zipEntryName = zipEntry.getName();
                                 File targetFile = new File(TERMUX_STAGING_PREFIX_DIR_PATH, zipEntryName);
-                                requireInside(stagingRoot, targetFile);
+                                BootstrapEntries.requireInside(stagingRoot, targetFile);
                                 boolean isDirectory = zipEntry.isDirectory();
 
                                 error = FileUtils.createDirectoryFile((isDirectory ? targetFile : targetFile.getParentFile()).getAbsolutePath());
                                 if (error != null) { showBootstrapErrorDialog(activity, whenDone, Error.getErrorMarkdownString(error)); return; }
 
                                 if (!isDirectory) {
+                                    int headLength;
                                     try (FileOutputStream outStream = new FileOutputStream(targetFile)) {
-                                        int readBytes;
-                                        while ((readBytes = zipInput.read(buffer)) != -1)
-                                            outStream.write(buffer, 0, readBytes);
+                                        headLength = BootstrapEntries.copy(zipInput, outStream, buffer, head);
                                     }
-                                    if (zipEntryName.startsWith("bin/") || zipEntryName.startsWith("libexec") ||
-                                        zipEntryName.startsWith("lib/apt/apt-helper") || zipEntryName.startsWith("lib/apt/methods") ||
-                                        zipEntryName.equals("etc/termux/bootstrap/termux-bootstrap-second-stage.sh")) {
+                                    // Archive modes are lost; bin/ symlinks into lib/ (npm, npx, corepack)
+                                    // need their ELF or #! targets executable too.
+                                    if (BootstrapEntries.isExecutable(zipEntryName, head, headLength)) {
                                         //noinspection OctalInteger
                                         Os.chmod(targetFile.getAbsolutePath(), 0700);
                                     }
@@ -162,13 +163,6 @@ public final class BootstrapInstaller {
                 }
             }
         }.start();
-    }
-
-    /** Rejects archive paths that would escape the staging prefix (zip slip). */
-    static void requireInside(String canonicalRootWithSeparator, File target) throws IOException {
-        String path = target.getCanonicalPath();
-        if (!(path + File.separator).startsWith(canonicalRootWithSeparator) && !path.startsWith(canonicalRootWithSeparator))
-            throw new IOException("Bootstrap entry escapes the prefix: " + target.getPath());
     }
 
     private static void showBootstrapErrorDialog(Activity activity, Runnable whenDone, String message) {

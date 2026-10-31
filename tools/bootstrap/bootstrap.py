@@ -247,6 +247,18 @@ def relative_path(name):
         part not in ("", ".", "..") for part in name.rstrip("/").split("/"))
 
 
+def symlink_destination(name):
+    """SYMLINKS.txt destination relative to the prefix, or None if it is unsafe.
+
+    build-bootstraps.sh writes each line from `find . -type l`, so destinations look like
+    `./bin/sh`; exactly one leading './' is removed and everything else must be a plain
+    relative path (no '..', '.', empty or absolute components).
+    """
+    if name.startswith("./"):
+        name = name[2:]
+    return name if relative_path(name) else None
+
+
 def foreign_prefix(data):
     match = FOREIGN_PREFIX.search(data)
     return match.group(1).decode() if match else None
@@ -269,10 +281,11 @@ def verify_artifact(archive_path, arch, config, include_extra=True):
         links = {}
         for line in archive.read("SYMLINKS.txt").decode().splitlines():
             require(line.count("←") == 1, "Malformed bootstrap symlink entry")
-            target, name = line.split("←")
+            target, raw_name = line.split("←")
             require(target and "\\" not in target, "Empty or invalid symlink target")
-            require(relative_path(name) and name not in links and name not in names,
-                    f"Unsafe or duplicate symlink destination: {name}")
+            name = symlink_destination(raw_name)
+            require(name is not None and name not in links and name not in names,
+                    f"Unsafe or duplicate symlink destination: {raw_name}")
             normalized_target = posixpath.normpath(target)
             require(not target.startswith("/data/") or normalized_target.startswith(config["prefix"] + "/"),
                     f"Symlink escapes commandroid-line's private prefix: {target}")

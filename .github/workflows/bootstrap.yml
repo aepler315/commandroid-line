@@ -28,6 +28,9 @@ jobs:
         arch: [aarch64, x86_64]
     env:
       ARCH: ${{ matrix.arch }}
+      # On pull_request, github.sha is GitHub's ephemeral refs/pull/N/merge commit; the
+      # reviewed head commit is what provenance and artifact names must identify.
+      SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +113,9 @@ jobs:
           cp "$SRC/bootstrap-$ARCH.zip" "$OUT/"
           (cd "$OUT" && sha256sum "bootstrap-$ARCH.zip" > "bootstrap-$ARCH.zip.sha256" && cat "bootstrap-$ARCH.zip.sha256")
           {
-            echo "repository_commit=$GITHUB_SHA"
+            echo "repository_commit=$SOURCE_COMMIT"
+            # The commit actually checked out (the merge commit on pull_request runs).
+            echo "checkout_commit=$GITHUB_SHA"
             echo "source_revision=$(git -C "$SRC" rev-parse HEAD)"
             echo "builder_image_id=$(docker image inspect --format '{{.Id}}' "$IMAGE")"
             echo "docker=$(docker version --format '{{.Server.Version}}')"
@@ -123,7 +128,7 @@ jobs:
       - name: Upload bootstrap artifact
         uses: actions/upload-artifact@v4
         with:
-          name: commandroid-line-bootstrap-${{ matrix.arch }}-${{ github.sha }}
+          name: commandroid-line-bootstrap-${{ matrix.arch }}-${{ env.SOURCE_COMMIT }}
           path: |
             ${{ runner.temp }}/out/bootstrap-${{ matrix.arch }}.zip
             ${{ runner.temp }}/out/bootstrap-${{ matrix.arch }}.zip.sha256
@@ -137,7 +142,7 @@ jobs:
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: commandroid-line-bootstrap-${{ matrix.arch }}-failed-log-${{ github.sha }}
+          name: commandroid-line-bootstrap-${{ matrix.arch }}-failed-log-${{ env.SOURCE_COMMIT }}
           path: ${{ runner.temp }}/out/build-${{ matrix.arch }}.log
           retention-days: 30
           if-no-files-found: ignore
