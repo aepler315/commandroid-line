@@ -106,14 +106,14 @@ case "${PREFIX:-}" in
         fail prefix-identity "PREFIX belongs to official Termux; this must run in commandroid-line" ;;
     */com.commandroid_line/files/usr)
         if [ -x "$PREFIX/bin/bash" ]; then
-            pass prefix-identity "compat prefix with bash"
+            pass prefix-identity "commandroid-line prefix with bash"
         else
-            fail prefix-identity "compat prefix has no bin/bash (no bootstrap installed)"
+            fail prefix-identity "commandroid-line prefix has no bin/bash (no bootstrap installed)"
         fi ;;
     # com.commandroid_line.system was the targetSdk 34 "system" flavor, removed in
     # b473b51. Kept so a leftover install of it is still reported clearly.
     */com.commandroid_line.system/*)
-        fail prefix-identity "system flavor: agent CLIs need the compat runtime" ;;
+        fail prefix-identity "old com.commandroid_line.system install: use com.commandroid_line with a bootstrap" ;;
     "")
         fail prefix-identity "PREFIX is unset; not a commandroid-line session" ;;
     *)
@@ -122,7 +122,7 @@ esac
 # The system-shell fallback exports COMMANDROID_RUNTIME=system-shell; older
 # builds export only NEOTERM_RUNTIME=android-system. Either one means fallback.
 if [ "${COMMANDROID_RUNTIME:-}" = "system-shell" ] || [ "${NEOTERM_RUNTIME:-}" = "android-system" ]; then
-    fail runtime-shell "Android system shell runtime; install the compat bootstrap"
+    fail runtime-shell "Android system shell fallback; install a build that bundles the bootstrap"
 else
     pass runtime-shell "not the Android system-shell fallback"
 fi

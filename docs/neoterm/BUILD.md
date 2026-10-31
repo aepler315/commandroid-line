@@ -143,8 +143,8 @@ without the owner's explicit authorization.
 
 ## Continuous integration
 
-`.github/workflows/debug_build.yml` runs on pull requests to `main` and pushes to
-`main`, with read-only repository permission. It runs:
+`.github/workflows/debug_build.yml` runs on pull requests to `main`, pushes to
+`main` and manual `workflow_dispatch`, with read-only repository permission. It runs:
 
 - a "build" job: the bootstrap tool tests (`tools/bootstrap/test_*.py`), then
   `:app:lintDebug`, `:neoterm-input:test`, `:cmd-translator:test`,
@@ -159,7 +159,7 @@ It uploads these workflow artifacts: `commandroid-line-debug-<sha>` (only
 `TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS=0`), `commandroid-line-androidTest-<sha>`
 (the instrumentation APK), `commandroid-reports-<sha>`, and per API level
 `commandroid-androidTest-api<level>-<sha>` and `commandroid-logcat-api<level>-<sha>`.
-Instrumented results for `b473b51` are pending CI. CI does not bundle a
+Instrumented results for `b473b51`: API 34 passes; API 36 fails the hardware-Enter check only (see TESTING.md). CI does not bundle a
 bootstrap, so its APK uses the `/system/bin/sh` fallback. CI publishes no
 releases and deploys nothing. The inherited upstream
 workflows `attach_debug_apks_to_release.yml`, `run_tests.yml` and

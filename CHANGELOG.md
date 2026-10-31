@@ -30,7 +30,10 @@ Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
 - Documentation updated for the single app; ADR-0001 has a dated amendment.
 - Verification at `b473b51`: lint passes, and locally app JVM 77, cmd-translator
   44, neoterm-input 28, terminal-emulator 145 and bootstrap tool 44 tests pass.
-  Instrumented results for this commit are pending CI. No device testing has
+  On CI emulators, API 34 passes. API 36 fails only
+  `CommandSubmissionTest.imeCommitEditorActionsAndHardwareEnterNeverSubmit` (hardware Enter
+  leaves the draft unchanged on Android 16; also on `main` before this change).
+  `aaf200c` makes that test report its full state; the cause is not yet known. No device testing has
   been done, the agent CLIs are unverified, and no bootstrap has been built
   successfully yet (CI run #5 was in progress).
 

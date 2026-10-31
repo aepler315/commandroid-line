@@ -34,7 +34,8 @@
 4. **CI.** Get the instrumented suite (`:app:connectedDebugAndroidTest`),
    including the PTY integration tests for interrupts, lifecycle, submission,
    Unicode and restarts, green on the API 34 and API 36 CI emulators for the
-   single-app build. Its results are pending.
+   single-app build. At `b473b51` API 34 is green; API 36 fails only the
+   hardware-Enter draft check, which is under diagnosis (TESTING.md).
 5. **Translator defects.** Emit `--` before `rm`/`cp`/`mv` operands, and narrow the
    glued-`cd` rule so that words like `cd.sh` are not read as `cd`. Both are
    carried over from PR #2.

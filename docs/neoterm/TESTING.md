@@ -52,7 +52,7 @@ Reports:
 | Bootstrap tool tests (`tools/bootstrap/test_*.py`) | 44 tests pass (local) |
 | `:app:lintDebug` | 0 errors (local) |
 | `:app:assembleDebug`, `:app:assembleDebugAndroidTest` | build (local) |
-| `:app:connectedDebugAndroidTest` | **pending** CI emulators (`.github/workflows/debug_build.yml`, API 34 and 36) for this commit; earlier two-flavor results below. Not run locally: the development container has no KVM. |
+| `:app:connectedDebugAndroidTest` | CI emulators (`.github/workflows/debug_build.yml`, API 34 and 36): API 34 passes; API 36 fails one test (see below). Not run locally: the development container has no KVM. |
 | Galaxy S26 Ultra ([DEVICE-TEST-PROTOCOL.md](DEVICE-TEST-PROTOCOL.md)) | **not run** |
 | Agent CLIs ([AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md)) | **not run** |
 
@@ -110,7 +110,8 @@ PTY integration tests in `app/src/androidTest/java/com/commandroid/integration`
   working.
 - `CommandSubmissionTest`: Transmit writes without executing and Enter submits
   exactly once; Enter with a pending draft does not submit; IME commit, editor
-  actions and hardware Enter in the draft never submit; CMD mode writes the POSIX
+  actions and hardware Enter in the draft never submit (hardware Enter currently
+  fails on API 36; see the CI results below); CMD mode writes the POSIX
   translation for review and runs it only on Enter.
 - `UnicodeInputTest`: precomposed, CJK, supplementary-plane emoji, combining and
   ZWJ sequences arrive byte-exact and are shown by the emulator.
@@ -131,10 +132,20 @@ S26 Ultra's release). The CI APK is built without a bootstrap, so the
 bootstrap-prefix test is skipped and the Termux-compatible runtime (bash, node,
 git) has no instrumented coverage yet.
 
-- **`b473b51` (one app)**: results are **pending** CI.
+- **`b473b51` (one app)**: API 34 passes every test. API 36 passes 37 of 38.
+  The failing test is `CommandSubmissionTest.imeCommitEditorActionsAndHardwareEnterNeverSubmit`:
+  after an injected hardware Enter the draft is unchanged, where a line break
+  is expected. It failed the same way on `main` (`8edfcb5`) for both former
+  flavors, so it is specific to Android 16, not to targetSdk. Since `aaf200c` the test
+  reports the draft, selection, focus owner, IME and whether the PTY saw the
+  command, then retries once after `restartInput`. Hypothesis, not yet
+  confirmed: the test commits the draft through its own InputConnection, which
+  invalidates the IME's; if Android 16's IME applies a hardware Enter through
+  its stale connection, the edit is dropped. Until that is resolved, hardware
+  Enter in the draft on Android 16 counts as **unverified**.
 - **API 34, two-flavor build** (historical, head `4a2c9c8`): every test passed
   in both the compat and the former system flavor.
-- **API 36**: added after `4a2c9c8`; no result has been recorded here yet.
+- **API 36**: first run at `8edfcb5`; same single failure as above.
 - **API 30** (Android 11) ran until `4a2c9c8`, where every test passed. It was
   dropped because no target device runs it. Android 11's toybox `stty` refused
   every option that changes the tty mode (`-icanon`, `-echo`, `-isig`, `-icrnl`).
