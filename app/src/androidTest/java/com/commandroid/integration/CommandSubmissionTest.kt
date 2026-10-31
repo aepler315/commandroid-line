@@ -11,6 +11,7 @@ import com.termux.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -89,7 +90,22 @@ class CommandSubmissionTest {
             // Hardware Enter (as from a Bluetooth/USB keyboard) adds a line break to the draft.
             h.instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
             h.instrumentation.waitForIdleSync()
-            assertTrue("Hardware Enter must edit the draft, not submit it", h.draft() == command + "\n")
+            if (h.draft() != command + "\n") {
+                // Diagnose before failing: the draft is a non-secret fixture. commitDraft() opened
+                // its own InputConnection, which invalidates the IME's; if the platform IME turns a
+                // hardware Enter into an edit on its (now stale) connection, the edit is dropped.
+                val before = enterState(h, shell, nonce)
+                h.onMain { activity ->
+                    val editor = h.editor(activity)
+                    (activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                        as android.view.inputmethod.InputMethodManager).restartInput(editor)
+                }
+                h.instrumentation.waitForIdleSync()
+                h.instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+                h.instrumentation.waitForIdleSync()
+                fail("Hardware Enter must edit the draft, not submit it. After Enter: $before | " +
+                    "after restartInput + Enter: ${enterState(h, shell, nonce)}")
+            }
             assertFor("Hardware Enter in the draft reached the PTY") { !h.transcript(shell).contains(nonce) }
 
             // Without bracketed paste a multi-line draft is refused, not split into commands.
@@ -146,4 +162,17 @@ class CommandSubmissionTest {
             assertFor("Refused CMD draft was written to the PTY") { !h.transcript(shell).contains("rk$nonce") }
         }
     }
+
+    /** One-line state for an Enter failure: draft (escaped), selection, focus, IME, PTY reach. */
+    private fun enterState(h: PtyHarness, shell: com.termux.terminal.TerminalSession, nonce: String): String =
+        h.onMain { activity ->
+            val editor = h.editor(activity)
+            val draft = editor.text.toString().replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
+            val ime = android.provider.Settings.Secure.getString(activity.contentResolver,
+                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)
+            "draft=\"$draft\" sel=${editor.selectionStart}..${editor.selectionEnd} " +
+                "editorFocused=${editor.hasFocus()} focus=${activity.currentFocus?.javaClass?.simpleName} " +
+                "composing=${editor.engine.isComposing} ime=$ime api=${android.os.Build.VERSION.SDK_INT} " +
+                "reachedPty=${shell.emulator?.screen?.transcriptText?.contains(nonce)}"
+        }
 }

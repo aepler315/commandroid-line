@@ -24,9 +24,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /*
  * Shared harness for the PTY integration tests. Everything here drives the real TermuxActivity,
- * TermuxService, JNI PTY and the session's shell (/system/bin/sh, or the compat prefix's login
+ * TermuxService, JNI PTY and the session's shell (/system/bin/sh, or the bootstrap prefix's login
  * shell once a bootstrap is installed). Shell snippets use only POSIX sh syntax and tools that
- * Android's /system/bin provides (mksh, toybox), so they run on both flavors.
+ * Android's /system/bin provides (mksh, toybox), so they run with or without a bootstrap.
  *
  * Markers: every observable result is printed as "<TAG>_<nonce>" by printf with TAG and nonce as
  * separate arguments, so the echoed command line can never contain the marker itself.

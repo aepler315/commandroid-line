@@ -3,7 +3,7 @@ package com.commandroid.integration
 
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.commandroid.runtime.FlavorRuntime
+import com.commandroid.runtime.AppRuntime
 import com.termux.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,7 +16,7 @@ import org.junit.runner.RunWith
  * Terminal capabilities that interactive agent CLIs (Claude Code, Codex, OpenCode) need from the
  * PTY session before they can work at all: real ttys, a window size that tracks the view with
  * SIGWINCH, raw-mode byte-exact keys, bracketed paste, the alternate screen and TERM. The agents
- * themselves are not installed here; the compat-prefix test exercises bash/node/git when present.
+ * themselves are not installed here; the bootstrap-prefix test exercises bash/node/git when present.
  */
 @RunWith(AndroidJUnit4::class)
 class InteractiveReadinessTest {
@@ -151,9 +151,9 @@ class InteractiveReadinessTest {
         }
     }
 
-    /** Only where the compat runtime has installed a bootstrap prefix; skipped otherwise. */
+    /** Only where a bundled bootstrap has been installed into the prefix; skipped otherwise. */
     @Test fun compatPrefixBashAndNodeSeeAnInteractiveTerminal() {
-        assumeTrue("No compat bootstrap prefix installed", FlavorRuntime.hasInstalledPrefix())
+        assumeTrue("No bootstrap prefix installed", AppRuntime.hasInstalledPrefix())
         PtyHarness.launch().use { h ->
             val shell = h.openSession("itest prefix")
             val (rows, cols) = h.onMain { shell.emulator.mRows to shell.emulator.mColumns }

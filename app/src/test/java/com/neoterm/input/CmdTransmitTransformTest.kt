@@ -8,7 +8,7 @@ import android.widget.TextView
 import com.aepler.commandroid.domain.DefaultWindowsToLinuxTranslator
 import com.aepler.commandroid.domain.TranslateCommandUseCase
 import com.aepler.commandroid.domain.TranslationResult
-import com.commandroid.runtime.FlavorRuntime
+import com.commandroid.runtime.AppRuntime
 import com.termux.R
 import com.termux.app.TermuxActivity
 import com.termux.app.TermuxService
@@ -198,7 +198,7 @@ class CmdSessionScopeTest {
 
         assertFalse(cmd.isChecked)
         assertNull(editor.engine.transform)
-        assertEquals(activity.getString(FlavorRuntime.runtimeNotice()), notice.text.toString())
+        assertEquals(activity.getString(AppRuntime.runtimeNotice()), notice.text.toString())
         // The toggle still works for the new session.
         cmd.isChecked = true
         assertTrue(editor.engine.transform is CmdTransmitTransform)
