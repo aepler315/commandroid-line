@@ -27,6 +27,8 @@ BASE_CHANGED_FILES = ("scripts/properties.sh", "packages/apt/build.sh", "package
 # with identical contents; each entry in config.json records how that was verified.
 REPIN_FILE = re.compile(r"(?:packages|x11-packages|root-packages)/[a-z0-9][a-z0-9+.-]*/build\.sh")
 SHA256 = re.compile(r"[0-9a-f]{64}")
+# URL rewrites only move a download; the pinned checksum still verifies the content.
+URL_PREFIX = re.compile(r"https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~%+-]+)*/")
 MACHINES = {"aarch64": 183, "arm": 40, "i686": 3, "x86_64": 62}
 # An accidental edit must never silently select another app's sandbox.
 IDENTITY = {
@@ -75,11 +77,26 @@ def configuration():
         require(isinstance(repin["verified"], str) and len(repin["verified"]) >= 20,
                 "checksum_repins entries must record how the new archive was verified")
     config["checksum_repins"] = repins
+    rewrites = config.get("source_url_rewrites", [])
+    require(isinstance(rewrites, list), "source_url_rewrites must be a list")
+    for rewrite in rewrites:
+        require(isinstance(rewrite, dict) and set(rewrite) == {"file", "old", "new", "count", "verified"},
+                "source_url_rewrites entries need exactly file, old, new, count and verified")
+        require(REPIN_FILE.fullmatch(rewrite["file"]) is not None, f"Unsafe source_url_rewrites file: {rewrite['file']}")
+        require(rewrite["file"] not in BASE_CHANGED_FILES, "source_url_rewrites cannot target an identity-edited file")
+        require(all(isinstance(rewrite[k], str) and URL_PREFIX.fullmatch(rewrite[k]) for k in ("old", "new"))
+                and rewrite["old"] != rewrite["new"], "source_url_rewrites old/new must be distinct https URL prefixes")
+        require(isinstance(rewrite["count"], int) and rewrite["count"] >= 1, "source_url_rewrites count must be >= 1")
+        require(isinstance(rewrite["verified"], str) and len(rewrite["verified"]) >= 20,
+                "source_url_rewrites entries must record how the new location was verified")
+    config["source_url_rewrites"] = rewrites
     return config
 
 
 def changed_files(config):
-    return BASE_CHANGED_FILES + tuple(sorted({repin["file"] for repin in config["checksum_repins"]}))
+    edited = {repin["file"] for repin in config["checksum_repins"]}
+    edited |= {rewrite["file"] for rewrite in config["source_url_rewrites"]}
+    return BASE_CHANGED_FILES + tuple(sorted(edited))
 
 
 def replace_once(text, old, new):
@@ -122,10 +139,16 @@ def prepared_file(source, relative, config):
         original = replace_once(original, old, new)
     elif relative != "scripts/build-bootstraps.sh":
         repins = [repin for repin in config["checksum_repins"] if repin["file"] == relative]
-        require(repins, f"No source edit is defined for {relative}")
+        rewrites = [rewrite for rewrite in config["source_url_rewrites"] if rewrite["file"] == relative]
+        require(repins or rewrites, f"No source edit is defined for {relative}")
         for repin in repins:
             # Only the exact pinned digest is replaced; any other upstream drift is refused.
             original = replace_once(original, repin["old"], repin["new"])
+        for rewrite in rewrites:
+            found = original.count(rewrite["old"])
+            require(found == rewrite["count"],
+                    f"Pinned source differs: expected {rewrite['count']} occurrences of {rewrite['old']!r} in {relative}, found {found}")
+            original = original.replace(rewrite["old"], rewrite["new"])
     else:
         # Upstream's local-source builder otherwise leaves both substitutions empty:
         # the package-manager variable is set only in child build-package processes,

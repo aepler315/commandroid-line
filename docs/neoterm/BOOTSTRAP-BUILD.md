@@ -105,6 +105,23 @@ Preparation makes these narrowly scoped source changes:
     identical (`diff -r`) to tag `1.21.0`, commit
     `68f5eab0b0fa08becebbed412947ba19246c2518`.
 
+- Source URL rewrites listed in `config.json` `source_url_rewrites`. They move a
+  download whose old location is gone. The pinned SHA-256 is unchanged and
+  `termux_download` still enforces it, so the content cannot change. Each
+  entry replaces an exact URL prefix an expected number of times in one
+  `build.sh`, and records how the new location was checked. Current rewrites:
+  - `packages/docbook-xml/build.sh`: `docbook.org/xml/` returns 404. Use
+    `archive.docbook.org/xml/`, which is what upstream termux-packages master
+    uses with the same five digests. The second CI build failed here.
+  - `packages/debianutils/build.sh`: 5.21 is gone from `deb.debian.org`. Use
+    `snapshot.debian.org` at 20241115T204403Z; the file there matches the pin.
+  - `packages/nano/build.sh`: 8.3 is no longer under `dist/latest/`. Use
+    `dist/v8/`; the file there matches the pin.
+
+  An availability scan of the closure's download URLs (2026-10-31) found these
+  three, plus GitHub archive and gnupg.org URLs that failed only through the
+  session proxy used for the scan. GitHub archive downloads succeed in CI.
+
   A static scan of the other on-the-fly archives in the bootstrap's dependency
   closure (apt, libxslt, freedesktop and Codeberg sources) found every pinned
   digest still matching, except libfcft 3.3.1. libfcft is a dependency of foot

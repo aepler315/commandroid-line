@@ -87,8 +87,32 @@ class ConfigurationTest(unittest.TestCase):
             self.configure(checksum_repins=[entry])
 
     def test_repins_are_optional(self):
-        config = self.configure(checksum_repins=[])
+        config = self.configure(checksum_repins=[], source_url_rewrites=[])
         self.assertEqual(BOOTSTRAP.changed_files(config), BOOTSTRAP.BASE_CHANGED_FILES)
+
+    def rewrite(self, **changes):
+        entry = dict(json.loads(BOOTSTRAP.CONFIG_PATH.read_text())["source_url_rewrites"][0])
+        entry.update(changes)
+        return entry
+
+    def test_url_rewrites_are_recorded_and_changes_tracked_files(self):
+        config = BOOTSTRAP.configuration()
+        files = ["packages/docbook-xml/build.sh", "packages/debianutils/build.sh", "packages/nano/build.sh"]
+        self.assertEqual([r["file"] for r in config["source_url_rewrites"]], files)
+        for name in files:
+            self.assertIn(name, BOOTSTRAP.changed_files(config))
+
+    def test_rejects_unsafe_url_rewrites(self):
+        with self.assertRaisesRegex(ValueError, "https URL prefixes"):
+            self.configure(source_url_rewrites=[self.rewrite(new="http://archive.docbook.org/xml/")])
+        with self.assertRaisesRegex(ValueError, "https URL prefixes"):
+            self.configure(source_url_rewrites=[self.rewrite(new="https://archive.docbook.org/xml/'; rm -rf /")])
+        with self.assertRaisesRegex(ValueError, "Unsafe source_url_rewrites file"):
+            self.configure(source_url_rewrites=[self.rewrite(file="scripts/properties.sh")])
+        with self.assertRaisesRegex(ValueError, "count"):
+            self.configure(source_url_rewrites=[self.rewrite(count=0)])
+        with self.assertRaisesRegex(ValueError, "verified"):
+            self.configure(source_url_rewrites=[self.rewrite(verified="")])
 
     def test_build_args_include_extra_packages(self):
         config = BOOTSTRAP.configuration()

@@ -34,5 +34,28 @@
       "new": "18044ce49099b01ca1db3c6b1b23300fdaa23848577835a72ec9481f9713b4fe",
       "verified": "2026-10-31: Codeberg regenerated this on-the-fly archive. Its extracted tree is identical (diff -r) to git tag 1.21.0, commit 68f5eab0b0fa08becebbed412947ba19246c2518; ncurses uses only foot.info from it."
     }
+  ],
+  "source_url_rewrites": [
+    {
+      "file": "packages/docbook-xml/build.sh",
+      "old": "https://docbook.org/xml/",
+      "new": "https://archive.docbook.org/xml/",
+      "count": 5,
+      "verified": "2026-10-31: docbook.org/xml/* returns 404; upstream termux-packages master downloads the same five archives from archive.docbook.org with unchanged SHA-256 pins, which termux_download still enforces."
+    },
+    {
+      "file": "packages/debianutils/build.sh",
+      "old": "https://deb.debian.org/debian/pool/main/d/debianutils/",
+      "new": "https://snapshot.debian.org/archive/debian/20241115T204403Z/pool/main/d/debianutils/",
+      "count": 1,
+      "verified": "2026-10-31: debianutils_5.21.tar.xz is gone from deb.debian.org (404); snapshot.debian.org first saw it at 20241115T204403Z and serves a file whose SHA-256 equals the pinned 0053dcfd\u202694fe5."
+    },
+    {
+      "file": "packages/nano/build.sh",
+      "old": "https://nano-editor.org/dist/latest/",
+      "new": "https://nano-editor.org/dist/v8/",
+      "count": 1,
+      "verified": "2026-10-31: nano-8.3.tar.xz is no longer under dist/latest/ (404); dist/v8/ serves a file whose SHA-256 equals the pinned 551b717b\u2026f111e."
+    }
   ]
 }
