@@ -277,7 +277,7 @@ public final class TermuxConstants {
 
     /** Termux app name */
     public static final String TERMUX_APP_NAME = "commandroid-line"; // Default: "Termux"
-    /** Termux package name. commandroid-line: set per runtime flavor in termux-shared/build.gradle. */
+    /** Termux package name. commandroid-line: set in termux-shared/build.gradle (BuildConfig). */
     public static final String TERMUX_PACKAGE_NAME = com.termux.shared.BuildConfig.TERMUX_PACKAGE_NAME; // Default: "com.termux"
     /** NeoTerm preserves upstream Java class names and JNI symbols independently of Android identity. */
     public static final String TERMUX_JAVA_PACKAGE_NAME = "com.termux";

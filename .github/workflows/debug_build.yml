@@ -36,26 +36,26 @@ jobs:
           cmdline-tools-version: '12266719'
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
-      # Both flavors compile against SDK 34; the compat flavor only targets SDK 28, which does
-      # not need the platforms;android-28 package.
+      # The app compiles against SDK 34 and targets SDK 28, which does not need the
+      # platforms;android-28 package.
       - name: Install pinned Android toolchain
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;22.1.7171670'
       - name: Bootstrap tooling regressions
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -m unittest discover -s tools/bootstrap -p 'test_*.py'
-      # TODO: optionally build the compat flavor with the source-built bootstrap produced by the
-      # bootstrap workflow (download its artifact, pass -PcommandroidBootstrapDir=<dir>); see
-      # docs/neoterm/BOOTSTRAP-BUILD.md. Without it the compat APK falls back to /system/bin/sh.
+      # TODO: optionally build the app with the source-built bootstrap produced by the bootstrap
+      # workflow (download its artifact, pass -PcommandroidBootstrapDir=<dir>); see
+      # docs/neoterm/BOOTSTRAP-BUILD.md. Without it the APK falls back to /system/bin/sh.
       # Same task list as tools/commandroid-debug.sh; every JVM suite runs exactly once.
-      - name: Lint both flavors, all JVM tests, debug app and androidTest APKs
+      - name: Lint, all JVM tests, debug app and androidTest APKs
         run: >-
           ./gradlew --stacktrace --no-daemon --max-workers=2
-          :app:lintCompatDebug :app:lintSystemDebug
+          :app:lintDebug
           :neoterm-input:test :cmd-translator:test :terminal-emulator:testDebugUnitTest
-          :app:testCompatDebugUnitTest :app:testSystemDebugUnitTest
-          :app:assembleCompatDebug :app:assembleSystemDebug
-          :app:assembleCompatDebugAndroidTest :app:assembleSystemDebugAndroidTest
+          :app:testDebugUnitTest
+          :app:assembleDebug
+          :app:assembleDebugAndroidTest
       - name: Upload test and lint reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -66,26 +66,21 @@ jobs:
             **/build/test-results/**
             app/build/reports/lint-results-*.*
           if-no-files-found: ignore
-      - name: Upload compat debug APKs
+      # The installable app on its own, so a download holds exactly one APK to sideload.
+      - name: Upload debug app APK
         uses: actions/upload-artifact@v4
         with:
-          name: commandroid-compat-debug-${{ github.sha }}
-          path: |
-            app/build/outputs/apk/compat/debug/*.apk
-            app/build/outputs/apk/androidTest/compat/debug/*.apk
+          name: commandroid-line-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-      - name: Upload system debug APKs
+      - name: Upload instrumentation test APK
         uses: actions/upload-artifact@v4
         with:
-          name: commandroid-system-debug-${{ github.sha }}
-          path: |
-            app/build/outputs/apk/system/debug/*.apk
-            app/build/outputs/apk/androidTest/system/debug/*.apk
+          name: commandroid-line-androidTest-${{ github.sha }}
+          path: app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
 
-  # Both flavors' instrumentation tests on an emulator, in parallel with "build". The flavors have
-  # distinct application IDs (com.commandroid_line, com.commandroid_line.system) and install side
-  # by side.
+  # Instrumentation tests on emulators, in parallel with "build".
   instrumented:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -117,7 +112,7 @@ jobs:
       # The emulator runner executes each script line in its own shell and stops at the first
       # failing line, so the Gradle status and the logcat dump share one line: logcat is captured
       # before the emulator shuts down whether or not the tests pass, and the status is kept.
-      - name: Connected tests for both flavors
+      - name: Connected tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -127,7 +122,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
             mkdir -p build/ci-logs
-            status=0; ./gradlew --continue :app:connectedCompatDebugAndroidTest :app:connectedSystemDebugAndroidTest --no-daemon --max-workers=2 || status=$?; adb logcat -d > build/ci-logs/logcat-api${{ matrix.api-level }}.txt || true; exit $status
+            status=0; ./gradlew --continue :app:connectedDebugAndroidTest --no-daemon --max-workers=2 || status=$?; adb logcat -d > build/ci-logs/logcat-api${{ matrix.api-level }}.txt || true; exit $status
       - name: Upload androidTest reports
         if: always()
         uses: actions/upload-artifact@v4

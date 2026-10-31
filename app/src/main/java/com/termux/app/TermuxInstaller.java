@@ -5,7 +5,7 @@ import android.content.Context;
 import android.os.Environment;
 import android.os.UserManager;
 import android.system.Os;
-import com.commandroid.runtime.FlavorRuntime;
+import com.commandroid.runtime.AppRuntime;
 import com.termux.R;
 import com.termux.app.utils.CrashUtils;
 import com.termux.shared.file.FileUtils;
@@ -15,7 +15,7 @@ import com.termux.shared.termux.TermuxConstants;
 import java.io.File;
 import java.io.IOException;
 
-/** Startup. The runtime flavor decides what is installed (see com.commandroid.runtime.FlavorRuntime). */
+/** Startup. com.commandroid.runtime.AppRuntime decides what is installed. */
 final class TermuxInstaller {
     /** Initialize only this app's own sandbox; never extract an official com.termux bootstrap. */
     static void setupBootstrapIfNeeded(final Activity activity, final Runnable whenDone) {
@@ -32,7 +32,7 @@ final class TermuxInstaller {
         }
 
         try {
-            FlavorRuntime.install(activity, whenDone);
+            AppRuntime.install(activity, whenDone);
         } catch (IOException | SecurityException error) {
             new android.app.AlertDialog.Builder(activity)
                 .setTitle(R.string.neoterm_runtime_error)
