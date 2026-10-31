@@ -130,6 +130,12 @@ Preparation makes these narrowly scoped source changes:
   - `packages/dos2unix/build.sh`: `waterlan.home.xs4all.nl` now serves an HTML
     page in place of 7.5.2. Use dos2unix's SourceForge release mirror; the file
     there matches the pin. The fifth CI build stopped here.
+  - `packages/apr/build.sh`, `packages/apr-util/build.sh` and
+    `packages/subversion/build.sh` (git's dependencies): `dlcdn.apache.org`
+    and `downloads.apache.org` keep only current releases. apr 1.7.5 and
+    apr-util 1.6.3 already return 404 there. Use `archive.apache.org/dist/`,
+    whose files match the pins. The sixth CI build compiled every default
+    package and stopped at apr.
 
   An availability scan of the closure's download URLs (2026-10-31) found these
   three, plus GitHub archive and gnupg.org URLs that failed only through the

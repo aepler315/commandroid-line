@@ -63,6 +63,27 @@
       "new": "https://downloads.sourceforge.net/project/dos2unix/dos2unix/7.5.2/",
       "count": 1,
       "verified": "2026-10-31: waterlan.home.xs4all.nl now returns a 12 KB HTML page for dos2unix-7.5.2.tar.gz (bootstrap CI run 5 failed on it); dos2unix's SourceForge release mirror serves a 991485-byte file whose SHA-256 equals the pinned 26474244\u2026c4bf3a."
+    },
+    {
+      "file": "packages/apr/build.sh",
+      "old": "https://dlcdn.apache.org/apr/",
+      "new": "https://archive.apache.org/dist/apr/",
+      "count": 1,
+      "verified": "2026-10-31: dlcdn.apache.org keeps only current releases and returns 404 for apr-1.7.5.tar.bz2 (bootstrap CI run 6 failed on it while building git's dependencies); archive.apache.org, Apache's permanent release archive, serves a file whose SHA-256 equals the pinned cd0f5d52\u20267232f2."
+    },
+    {
+      "file": "packages/apr-util/build.sh",
+      "old": "https://downloads.apache.org/apr/",
+      "new": "https://archive.apache.org/dist/apr/",
+      "count": 1,
+      "verified": "2026-10-31: downloads.apache.org returns 404 for apr-util-1.6.3.tar.gz; archive.apache.org, Apache's permanent release archive, serves a file whose SHA-256 equals the pinned 2b74d893\u2026acf1983."
+    },
+    {
+      "file": "packages/subversion/build.sh",
+      "old": "https://downloads.apache.org/subversion/",
+      "new": "https://archive.apache.org/dist/subversion/",
+      "count": 1,
+      "verified": "2026-10-31: downloads.apache.org still serves subversion-1.14.5.tar.bz2 but drops releases once superseded; archive.apache.org, Apache's permanent release archive, serves a file whose SHA-256 equals the pinned e78a29e7\u202635644a1."
     }
   ]
 }
