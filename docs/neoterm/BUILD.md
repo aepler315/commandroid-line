@@ -159,7 +159,7 @@ It uploads these workflow artifacts: `commandroid-line-debug-<sha>` (only
 `TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS=0`), `commandroid-line-androidTest-<sha>`
 (the instrumentation APK), `commandroid-reports-<sha>`, and per API level
 `commandroid-androidTest-api<level>-<sha>` and `commandroid-logcat-api<level>-<sha>`.
-Instrumented results for `b473b51`: API 34 passes; API 36 fails the hardware-Enter check only (see TESTING.md). CI does not bundle a
+Instrumented results: every test passes on API 34 and API 36 from `59f17d0` (see TESTING.md). CI does not bundle a
 bootstrap, so its APK uses the `/system/bin/sh` fallback. CI publishes no
 releases and deploys nothing. The inherited upstream
 workflows `attach_debug_apks_to_release.yml`, `run_tests.yml` and

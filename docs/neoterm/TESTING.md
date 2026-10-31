@@ -52,7 +52,7 @@ Reports:
 | Bootstrap tool tests (`tools/bootstrap/test_*.py`) | 44 tests pass (local) |
 | `:app:lintDebug` | 0 errors (local) |
 | `:app:assembleDebug`, `:app:assembleDebugAndroidTest` | build (local) |
-| `:app:connectedDebugAndroidTest` | CI emulators (`.github/workflows/debug_build.yml`, API 34 and 36): API 34 passes; API 36 fails one test (see below). Not run locally: the development container has no KVM. |
+| `:app:connectedDebugAndroidTest` | CI emulators (`.github/workflows/debug_build.yml`, API 34 and 36): both API 34 and API 36 pass every test at `59f17d0` (see below). Not run locally: the development container has no KVM. |
 | Galaxy S26 Ultra ([DEVICE-TEST-PROTOCOL.md](DEVICE-TEST-PROTOCOL.md)) | **not run** |
 | Agent CLIs ([AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md)) | **not run** |
 
@@ -110,8 +110,8 @@ PTY integration tests in `app/src/androidTest/java/com/commandroid/integration`
   working.
 - `CommandSubmissionTest`: Transmit writes without executing and Enter submits
   exactly once; Enter with a pending draft does not submit; IME commit, editor
-  actions and hardware Enter in the draft never submit (hardware Enter currently
-  fails on API 36; see the CI results below); CMD mode writes the POSIX
+  actions and hardware Enter in the draft never submit, and hardware Enter adds
+  a line break even when the IME would consume it (Gboard on API 36); CMD mode writes the POSIX
   translation for review and runs it only on Enter.
 - `UnicodeInputTest`: precomposed, CJK, supplementary-plane emoji, combining and
   ZWJ sequences arrive byte-exact and are shown by the emulator.
@@ -146,12 +146,12 @@ git) has no instrumented coverage yet.
   held, but the IME consumed the hardware Enter before the editor's
   `onKeyDown`. `CompositionEditText` now takes a hardware Enter in
   `onKeyPreIme`, before the IME. While the IME holds a composition, Enter is
-  left to the IME so it can confirm CJK candidates. The CI result of that fix
-  is **pending**. Real Gboard and Samsung Keyboard behaviour with a Bluetooth
+  left to the IME so it can confirm CJK candidates. With that fix (`59f17d0`)
+  every test passes on API 34 and API 36. Real Gboard and Samsung Keyboard behaviour with a Bluetooth
   keyboard is a device check (DEVICE-TEST-PROTOCOL.md).
 - **API 34, two-flavor build** (historical, head `4a2c9c8`): every test passed
   in both the compat and the former system flavor.
-- **API 36**: first run at `8edfcb5`; same single failure as above.
+- **API 36**: first run at `8edfcb5` showed the single failure above; all tests pass from `59f17d0`.
 - **API 30** (Android 11) ran until `4a2c9c8`, where every test passed. It was
   dropped because no target device runs it. Android 11's toybox `stty` refused
   every option that changes the tty mode (`-icanon`, `-echo`, `-isig`, `-icrnl`).
