@@ -1,4 +1,37 @@
-# NeoTerm changelog
+# commandroid-line changelog
+
+Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
+(`com.neoterm`) and PR #2 builds. Their test counts and task names are historical.
+
+## One PTY terminal, compat/system runtimes, documentation (2026-10-31)
+
+- One terminal stack (`85bb558`, [ADR-0001](docs/neoterm/ADR-0001-one-pty-terminal.md)).
+  The pipe-based Commandroid stack from PR #2 is retired:
+  `ShellTerminalProcessManager` (no PTY, `TERM=dumb`, Ctrl-C destroyed the session
+  shell), `TerminalSessionService`, the MVI view model, the Canvas `NeoTermView`,
+  the `CommandroidActivity` launcher, and Hilt/kapt. Interactive programs run only
+  in the upstream JNI PTY terminal.
+- The Windows CMD → POSIX translator is now the pure Kotlin `:cmd-translator`
+  module, applied only as an opt-in Transmit rewrite (CMD checkbox,
+  `CmdTransmitTransform`). The translation is staged in the shell line and runs
+  on Enter. Unsupported commands are refused and the draft is kept.
+  `InputEngine` gains `TransmitTransform`, `Rewrite`, `SendResult.REFUSED` and
+  `lastRefusal`.
+- New `runtime` flavor dimension. compat is `com.commandroid_line`, targetSdk 28,
+  with a bundled source-built bootstrap (`-PcommandroidBootstrapDir`) or a
+  system-shell fallback. system is `com.commandroid_line.system`, targetSdk 34,
+  `/system/bin/sh` only. Gradle tasks are now per flavor (for example
+  `:app:testCompatDebugUnitTest`, `:app:lintSystemDebug`).
+- Rewrote AGENTS.md, README.md, ARCHITECTURE.md, BUILD.md, TESTING.md,
+  REPOSITORY.md, UPSTREAM.md and ROADMAP.md for the merged implementation. Added
+  ADR-0001, DEVICE-TEST-PROTOCOL.md (Galaxy S26 Ultra), AGENT-CLI-ACCEPTANCE.md
+  and `tools/acceptance/agent-cli-check.sh`, a POSIX sh pre-check run inside the
+  app terminal.
+- Verification: JVM suites pass locally (neoterm-input 28, cmd-translator 44,
+  terminal-emulator 145, app 53 per flavor), lint reports 0 errors for both
+  flavors, and both flavors' debug and androidTest APKs build. The instrumented
+  suite is pending its first CI run. The device matrix, the source-built
+  bootstrap and the agent CLIs have **not** been run or verified.
 
 ## commandroid spec rebuild: SDK 34 toolchain (2026-10-29)
 

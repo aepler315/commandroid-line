@@ -1,67 +1,89 @@
-# NeoTerm roadmap and outstanding risks
+# Roadmap and outstanding risks
 
-## Implemented development scope
-Native IME draft, pure Kotlin lifecycle, explicit transmission and separate Enter,
-conservative AUTO and preserved direct key pipeline originated in Milestone 1.
-The current branch adds `com.neoterm`, no shared UID, local debug signing, isolated
-data/contracts and Android system-shell startup without an upstream bootstrap.
-See [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md) for current evidence;
-the old M1 test/build record is archived. Production Gboard/Samsung certification
-remain acceptance work. Coexistence and 20 Android tests including native PTY
-composition pass on an API 28 x86_64 emulator; physical-device coverage remains pending.
+## Implemented
+
+- One PTY terminal stack (upstream `TerminalSession`/`TerminalEmulator`/`TerminalView`)
+  with NeoTerm staged input. It has AUTO/TEXT/TERMINAL modes, an explicit
+  Transmit without Enter, bracketed paste for multi-line text, and a separate
+  Enter that writes only `\r` ([ARCHITECTURE.md](ARCHITECTURE.md)).
+- The Commandroid CMD → POSIX translator as an opt-in Transmit rewrite. Its
+  output is staged in the shell line and refusals keep the draft.
+- Two runtime flavors: compat (`com.commandroid_line`, targetSdk 28, bundled
+  source-built bootstrap or system-shell fallback) and system
+  (`com.commandroid_line.system`, targetSdk 34)
+  ([ADR-0001](ADR-0001-one-pty-terminal.md)).
+- The pipe-based Commandroid process manager, second launcher, MVI/Canvas UI and
+  Hilt are retired.
+- JVM suites pass locally ([TESTING.md](TESTING.md)).
 
 ## Next priorities
-1. Run the standalone installation, live PTY and real IME matrix in TESTING.md.
-   Confirm coexistence with official Termux without modifying its package/data.
-   Agent acceptance follows availability of a compatible Linux runtime. Add regression
-   fixtures for every vendor discrepancy. Test session switches, app backgrounding,
-   restarts, hardware modifiers and keyboard layout changes under load.
-2. Add a trustworthy shell/agent integration protocol for explicit natural-language,
-   command and sensitive-context signals. Authenticate and scope it to a session;
-   arbitrary escape output or a window title must not silently enable autocorrect.
-   AUTO remains conservative until this is proved.
-3. Improve in-memory lifecycle behavior, accessibility, focus restoration, narrow
-   landscape layouts, keyboard action handling and grapheme-rich editing based on
-   device evidence. Consider per-session draft retention only with explicit privacy
-   requirements; current switches/recreation intentionally discard unsent drafts.
-4. Evaluate terminal queue backpressure and acknowledged transmission UX. Current
-   TerminalSession.write is a queue handoff, not an app acknowledgment; avoid auto
-   retry/exactly-once claims and assess large-paste blocking of the main thread.
-5. Build and validate the custom-prefix Linux runtime described in MIGRATION.md
-   and BOOTSTRAP-BUILD.md. Source preparation tooling is present; complete bootstrap
-   builds, a signed package repository and AI CLI dependency closures are pending.
-   Establish protected release signing/source availability and an upstream security
-   patch process before production distribution.
 
-## Technical risks and present limits
-- No arbitrary-app detection or termios ECHO/password detector is implemented.
-  TEXT is explicitly selected for non-sensitive prose; use TERMINAL for secrets.
-- IMEs can ignore NO_PERSONALIZED_LEARNING. Drafts are not persisted/autofilled or
-  logged by NeoTerm, but a third-party keyboard remains outside app control.
-- Bracketed paste is a receiving application's advertised protocol; a broken or
-  hostile receiver can still interpret pasted input unexpectedly. Unbracketed
-  multiline/tab drafts are blocked. Printable text can have application actions;
-  NeoTerm cannot certify arbitrary terminal behavior.
-- Staged control characters and malformed UTF-16 are blocked; direct mode retains
-  Termux behavior and must be tested with target keyboards and agents.
-- Android Editable owns grapheme/selection behavior. Surrogate deletion is guarded;
-  whole-grapheme deletion of every combining/ZWJ sequence is not independently
-  implemented or certified.
-- Vendor IME/cursor-anchor, batch-edit, reconnection and focus timing need physical
-  testing. Current JVM checks do not execute a real IME, PTY or AI agent.
-- App/activity recreation and switching sessions discard unsent drafts deliberately.
-  No crash recovery or replay is offered. Failed/partial transport requires manual
-  inspection before retrying; terminal write has no receiver acknowledgment.
-- Stable upstream uses old Android target/API assumptions and dependencies. Tooling
-  updates do not resolve modern background execution, distribution policy, storage
-  or security-maintenance obligations. Plan these separately from input changes.
-- Package metadata now isolates NeoTerm from official Termux. Real-device separate
-  UID/data, install/upgrade behavior and component resolution still need evidence.
-- Shared upstream paths still assume the primary Android user. Startup blocks
-  secondary users/work profiles before initialization; supporting them requires a
-  complete context-derived path migration and profile-specific device tests.
-- The Android system shell offers only platform commands allowed to an app UID.
-  There is no package manager, Python, Node, SSH or agent runtime. Official Termux
-  packages must never be installed or copied into the new prefix as a shortcut.
-- Local debug keys differ across build machines; developer updates require the
-  same key. Protected production signing and an upgrade policy are still pending.
+1. **Bootstrap.** Build the compat bootstrap from source for
+   `/data/data/com.commandroid_line/files/usr`, including Node.js and git
+   ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). Then build and sign an apt
+   repository for that prefix so packages can be installed after first run.
+2. **Agent CLIs.** Run [AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md) for
+   Claude Code, Codex and OpenCode. Resolve native-binary availability for
+   Android/Bionic where an npm package ships a prebuilt binary.
+3. **Device.** Run [DEVICE-TEST-PROTOCOL.md](DEVICE-TEST-PROTOCOL.md) on the
+   Galaxy S26 Ultra with Samsung Keyboard, Gboard and a hardware keyboard. Add a
+   regression test for every vendor discrepancy found.
+4. **CI.** Get the instrumented suite, including the PTY integration tests for
+   interrupts, lifecycle, submission, Unicode and restarts, green on CI emulators.
+5. **Translator defects.** Emit `--` before `rm`/`cp`/`mv` operands, and narrow the
+   glued-`cd` rule so that words like `cd.sh` are not read as `cd`. Both are
+   carried over from PR #2.
+6. **16 KB pages.** Check, and if needed fix, 16 KB page-size compatibility of
+   the PTY JNI library (NDK 22.1.7171670) and the bootstrap binaries.
+7. **Integration protocol.** Add a trustworthy shell/agent integration protocol
+   for natural-language, command and sensitive-context signals. It must be
+   authenticated and scoped to a session. Arbitrary escape output or a window
+   title must not switch modes or enable autocorrect. Until then AUTO stays
+   conservative.
+8. **Input polish.** Improve in-memory lifecycle behavior, accessibility, focus
+   restoration, narrow landscape layouts and grapheme-rich editing, based on device
+   evidence. Consider per-session draft retention only with explicit privacy
+   requirements.
+9. **Transmission.** Evaluate terminal queue backpressure and acknowledged
+   transmission. `TerminalSession.write` is a queue handoff, not an acknowledgment.
+10. **Release.** Set up protected release signing, a source-availability process
+    and an upstream security-patch process before any distribution. That
+    distribution needs the owner's authorization.
+
+## Risks and present limits
+
+- **compat targetSdk 28.** It is sideload only and cannot be published on Google
+  Play. Android may warn at install, and a future release may raise the minimum
+  installable targetSdk. If that happens, compat stops installing on new devices
+  and no supported replacement route is known (exec via `linker64` was rejected
+  in ADR-0001).
+- **Phantom process killer (Android 12+).** Agent CLIs that spawn many processes
+  can be killed. Users must disable the restriction (Developer options or
+  `device_config`), and the app cannot do it for them.
+- **One UI background limits.** Samsung battery management can put the app to
+  sleep. Users must set the app to Unrestricted or Never sleeping.
+- **16 KB page-size devices.** Native code compatibility has not been checked.
+- **CMD translation** is a convenience for a subset of CMD, not a shell. The
+  prediction of `cd` across lines comes from a snapshot. Known defects (ADR-0001)
+  are mitigated, but not fixed, by staging every translation for an explicit
+  Enter.
+- **Passwords.** There is no termios ECHO or password detector. TEXT is for
+  non-sensitive prose; use TERMINAL for secrets. IMEs can ignore
+  `NO_PERSONALIZED_LEARNING`.
+- **Bracketed paste** is the receiving program's advertised protocol. A broken or
+  hostile receiver can still misinterpret pasted input. Unbracketed multi-line and
+  tab drafts are blocked.
+- **Grapheme deletion.** Android `Editable` owns grapheme and selection behavior.
+  Surrogate deletion is guarded, but whole-grapheme deletion of every combining or
+  ZWJ sequence is not certified.
+- **Vendor IME timing.** Cursor-anchor, batch-edit, reconnection and focus timing
+  need physical testing. JVM checks do not run a real IME, PTY or agent.
+- **Drafts are discarded deliberately.** Activity recreation and session switches
+  drop unsent drafts. There is no crash recovery or replay, and no receiver
+  acknowledgment of a write.
+- **Primary Android user only.** Startup blocks secondary users and work profiles
+  while shared upstream paths are static.
+- **Debug keys differ across machines.** Developer updates need the same key.
+  Production signing and an upgrade policy are pending.
+- Official Termux packages or bootstraps must never be installed or copied into
+  the prefix as a shortcut.
