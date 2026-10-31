@@ -1,5 +1,11 @@
 # Archived Milestone 1 review
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](ARCHITECTURE.md); current results are in
+> [TESTING.md](TESTING.md).
+
 This review covers the historical input milestone, not the current standalone
 identity/runtime changes. See [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md)
 for current verification status.

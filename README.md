@@ -76,7 +76,7 @@ Verification state at commit `85bb558`:
 | --- | --- |
 | JVM suites (`:neoterm-input:test`, `:cmd-translator:test`, `:terminal-emulator:testDebugUnitTest`, `:app:testCompatDebugUnitTest`, `:app:testSystemDebugUnitTest`) | Pass locally (neoterm-input 28, cmd-translator 44, terminal-emulator 145, app 53 per flavor) |
 | Lint and debug/androidTest APK builds, both flavors | Pass locally |
-| Instrumented suite (`:app:connectedCompatDebugAndroidTest`, `:app:connectedSystemDebugAndroidTest`) on CI emulators | Pending first CI run. It cannot run in the development container (no KVM). |
+| Instrumented suite (`:app:connectedCompatDebugAndroidTest`, `:app:connectedSystemDebugAndroidTest`) on CI emulators | At `e606a3a`: API 34 passes in both flavors; API 30 fails only the two raw-mode reads, whose fix (`df69d25`) is compiled but not yet run ([TESTING.md](docs/neoterm/TESTING.md)). The compat-prefix test is skipped (no bootstrap in CI). It cannot run in the development container (no KVM). |
 | Source-built compat bootstrap | Not built yet ([BOOTSTRAP-BUILD.md](docs/neoterm/BOOTSTRAP-BUILD.md)) |
 | Galaxy S26 Ultra device matrix ([DEVICE-TEST-PROTOCOL.md](docs/neoterm/DEVICE-TEST-PROTOCOL.md)) | Not run yet |
 | Claude Code, Codex, OpenCode in the compat runtime ([AGENT-CLI-ACCEPTANCE.md](docs/neoterm/AGENT-CLI-ACCEPTANCE.md)) | Not verified yet |
@@ -88,7 +88,9 @@ builds) are historical. They predate PR #2 and this identity and do not apply to
 the current APKs: [STANDALONE-VERIFICATION.md](docs/neoterm/STANDALONE-VERIFICATION.md),
 [ENTER-AND-APT.md](docs/neoterm/ENTER-AND-APT.md),
 [HARDWARE-KEYBOARD.md](docs/neoterm/HARDWARE-KEYBOARD.md),
-[VERIFICATION.md](docs/neoterm/VERIFICATION.md).
+[VERIFICATION.md](docs/neoterm/VERIFICATION.md),
+[MIGRATION.md](docs/neoterm/MIGRATION.md) and the plans and spec in
+[docs/superpowers/](docs/superpowers/).
 
 ## Documentation
 

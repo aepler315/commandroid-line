@@ -1,5 +1,11 @@
 # Physical keyboard focus follow-up
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](ARCHITECTURE.md); current results are in
+> [TESTING.md](TESTING.md).
+
 2026-10-29, after standalone preview commit `000acc78`. User reports Bluetooth
 keyboard input failing; affected mode/device details are still pending.
 

@@ -1,5 +1,11 @@
 # NeoTerm Input Implementation Plan
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](../../neoterm/ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](../../neoterm/ARCHITECTURE.md); current results are in
+> [TESTING.md](../../neoterm/TESTING.md).
+
 > Execute inline using superpowers:executing-plans and test-driven-development.
 
 **Goal:** Stage Android IME text outside the PTY, then explicitly transmit it.

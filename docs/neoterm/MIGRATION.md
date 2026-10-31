@@ -1,5 +1,11 @@
 # Standalone identity and Linux runtime migration
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](ARCHITECTURE.md); current results are in
+> [TESTING.md](TESTING.md).
+
 The current source implements an independently packaged Android system-shell
 NeoTerm. Linux packages and AI coding CLIs remain pending. Earlier M1 APKs used
 `com.termux`; their verification is [archived](VERIFICATION.md). Current test,

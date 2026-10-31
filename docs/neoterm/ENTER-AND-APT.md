@@ -1,5 +1,11 @@
 # Single physical Enter and apt progress
 
+> **Historical, superseded.** This document predates PR #2 and describes the
+> earlier `com.neoterm` / `com.termux` builds. Anything it calls current is not.
+> The current design is [ADR-0001](ADR-0001-one-pty-terminal.md) and
+> [ARCHITECTURE.md](ARCHITECTURE.md); current results are in
+> [TESTING.md](TESTING.md).
+
 2026-10-29. The user confirmed improved Bluetooth input after the focus fix,
 then reported needing Enter twice in AUTO mode. Changes follow `6d9527fb`.
 

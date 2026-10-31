@@ -66,7 +66,13 @@ class NativePtyCompositionInstrumentationTest {
     @Test fun correctedParagraphWaitsForTransmitAndSeparateTerminalEnter() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        assertEquals(com.termux.BuildConfig.APPLICATION_ID, context.packageName)
+        // Pinned per flavor: BuildConfig.APPLICATION_ID would always equal the package under test.
+        val expectedPackage = when (com.termux.BuildConfig.FLAVOR) {
+            "compat" -> "com.commandroid_line"
+            "system" -> "com.commandroid_line.system"
+            else -> error("Unknown runtime flavor ${com.termux.BuildConfig.FLAVOR}")
+        }
+        assertEquals(expectedPackage, context.packageName)
         val nonce = UUID.randomUUID().toString().replace("-", "")
         // Distinct from shell protocol markers, so it cannot already occur in command echo.
         val draftToken = "draft_" + UUID.randomUUID().toString().replace("-", "")
