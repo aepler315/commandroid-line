@@ -4,7 +4,9 @@ commandroid-line is a GPL-3.0-only fork of Termux v0.118.3. It has **one termina
 stack**, the upstream JNI PTY terminal. NeoTerm staged input sits on top of it, and
 the Commandroid Windows CMD → POSIX translator is available as an opt-in input
 rewrite. [ADR-0001](ADR-0001-one-pty-terminal.md) records why there is one stack
-and why there are two runtime flavors.
+and why the app targets SDK 28 and is sideload only. It is one app,
+`com.commandroid_line`; the separate targetSdk 34 `system` build was removed in
+`b473b51` (ADR-0001, amendment of 2026-10-31).
 
 ## Objective and constraints
 
@@ -24,64 +26,62 @@ and why there are two runtime flavors.
 | --- | --- |
 | `terminal-emulator/` | Upstream. `com.termux.terminal.TerminalSession`: the JNI PTY, created by `create_subprocess` in `src/main/jni/termux.c`. `TerminalEmulator`: the VT/xterm parser, screen, alternate buffer and DECSET 2004. |
 | `terminal-view/` | Upstream. `com.termux.view.TerminalView`: renderer, gestures, direct keys and its own `InputConnection`. |
-| `termux-shared/` | Upstream runtime, file system, shell environment and shared UI. It carries the `runtime` flavors. `TermuxConstants.TERMUX_PACKAGE_NAME` is `com.termux.shared.BuildConfig.TERMUX_PACKAGE_NAME`, and every prefix and home path derives from it. Identity strings are in `src/compat/res` and `src/system/res`. |
-| `app/src/main/java/com/termux/` | Upstream `TermuxActivity`, `TermuxService`, `TermuxInstaller` (startup), the session client and settings. The few commandroid-line hooks call `com.commandroid.runtime.FlavorRuntime`. |
+| `termux-shared/` | Upstream runtime, file system, shell environment and shared UI. `TermuxConstants.TERMUX_PACKAGE_NAME` is `com.termux.shared.BuildConfig.TERMUX_PACKAGE_NAME` (`com.commandroid_line`, set in `defaultConfig` of `termux-shared/build.gradle`), and every prefix and home path derives from it. Identity strings are in `src/main/res/values/identity_strings.xml`. |
+| `app/src/main/java/com/termux/` | Upstream `TermuxActivity`, `TermuxService`, `TermuxInstaller` (startup), the session client and settings, plus `app/BootstrapInstaller.java`, which installs a bundled bootstrap. The few commandroid-line hooks call `com.commandroid.runtime.AppRuntime`. |
+| `app/src/main/java/com/commandroid/runtime/` | `AppRuntime`: runtime selection (bundled-bootstrap prefix or system-shell fallback). Its notice strings are in `app/src/main/res/values/runtime_strings.xml`. |
 | `app/src/main/java/com/neoterm/input/` | NeoTerm Android input: `NeoTermInputController`, `CompositionEditText`, and `CmdTransmitTransform` (the CMD rewrite). The layout is `app/src/main/res/layout/view_neoterm_input.xml`. |
 | `app/src/main/java/com/neoterm/runtime/` | `AndroidShellEnvironment` sets up the `/system/bin/sh` environment: private HOME and TMPDIR, the system PATH, `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`. |
-| `app/src/compat/` | compat flavor: `java/com/commandroid/runtime/FlavorRuntime.java`, `java/com/termux/app/BootstrapInstaller.java`, runtime strings and shortcuts. |
-| `app/src/system/` | system flavor: `java/com/commandroid/runtime/FlavorRuntime.java`, label and shortcuts. |
 | `neoterm-input/` | Pure Kotlin `com.neoterm.input.InputEngine`: modes, draft lifecycle, the Transmit/Submit policy and `TransmitTransform`. No Android, PTY or process code. |
 | `cmd-translator/` | Pure Kotlin `com.aepler.commandroid.domain`, used as `TranslateCommandUseCase(DefaultWindowsToLinuxTranslator())`. No Android, PTY or process code. |
-| `tools/bootstrap/` | Prepares and validates the source-built bootstrap for the compat prefix ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). |
+| `tools/bootstrap/` | Prepares and validates the source-built bootstrap for the app's prefix ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). |
 
-## Runtime flavors
+## Runtime
 
-The flavor dimension `runtime` is declared identically in `app/build.gradle` and
-`termux-shared/build.gradle`:
+There is one app, with no product flavors:
 
-| | `compat` | `system` |
-| --- | --- | --- |
-| Application ID | `com.commandroid_line` | `com.commandroid_line.system` |
-| targetSdk | 28 (`compatTargetSdkVersion` in `gradle.properties`) | 34 (`targetSdkVersion`) |
-| Default shell | `$PREFIX/bin/login` (bash) once a bootstrap is installed, otherwise `/system/bin/sh` | always `/system/bin/sh` |
-| Environment client | `TermuxShellEnvironmentClient` with an installed prefix (`TERM=xterm-256color`, `COLORTERM=truecolor`, `LANG=en_US.UTF-8`), otherwise `AndroidShellEnvironment` | `AndroidShellEnvironment` |
-| Linux packages | only from a bootstrap built from source for `/data/data/com.commandroid_line/files/usr` | none |
-| Distribution | sideload only (targetSdk 28) | sideload today |
+| | |
+| --- | --- |
+| Application ID | `com.commandroid_line` (`app/build.gradle` `defaultConfig`) |
+| targetSdk | 28 (`targetSdkVersion` in `gradle.properties`), so binaries in the app's own prefix can `execve` |
+| Default shell | `$PREFIX/bin/login` (bash) once a bundled bootstrap is installed, otherwise `/system/bin/sh` |
+| Environment client | `TermuxShellEnvironmentClient` with an installed prefix (`TERM=xterm-256color`, `COLORTERM=truecolor`, `LANG=en_US.UTF-8`), otherwise `AndroidShellEnvironment`, which also exports `COMMANDROID_RUNTIME=system-shell` and `NEOTERM_RUNTIME=android-system` |
+| Linux packages | only from a bootstrap built from source for `/data/data/com.commandroid_line/files/usr` |
+| Distribution | sideload only; never published on Google Play (the owner's decision) |
 
-Both flavors use minSdk 26 and compileSdk 34, and they can be installed side by
-side. Both keep the `com.termux` Java and resource namespace (`com.termux.R`, and
-`com.termux.BuildConfig` with `FLAVOR` and `APPLICATION_ID`). Component classes
-such as `com.termux.app.TermuxActivity` keep their upstream names.
+The app uses minSdk 26 and compileSdk 34. It keeps the `com.termux` Java and
+resource namespace (`com.termux.R`, and `com.termux.BuildConfig` with
+`APPLICATION_ID`). Component classes such as `com.termux.app.TermuxActivity` keep
+their upstream names.
 
 ### Runtime selection
 
-`com.commandroid.runtime.FlavorRuntime` exists once in each flavor's source set.
-It is the only place where the runtimes differ in code:
+`com.commandroid.runtime.AppRuntime` decides, at run time, between the bundled
+bootstrap's prefix and the system-shell fallback:
 
-- `hasInstalledPrefix()`: compat returns true when `$PREFIX/bin/bash` exists.
-  system always returns false.
+- `hasInstalledPrefix()`: true when `$PREFIX/bin/bash` exists.
 - `shellEnvironment(context)`: `TermuxService` uses it for every session and
-  background task.
-- `defaultExecutable()`: with a prefix, compat returns `null`, and upstream then
-  picks `$PREFIX/bin/login`. Without a prefix it returns `/system/bin/sh`. system
-  always returns `/system/bin/sh` and never probes for vendor login, bash or zsh.
+  background task. `TermuxShellEnvironmentClient` with a prefix,
+  `AndroidShellEnvironment` without one.
+- `defaultExecutable()`: with a prefix it returns `null`, and upstream then picks
+  `$PREFIX/bin/login`. Without a prefix it returns `/system/bin/sh` and never
+  probes for vendor login, bash or zsh.
 - `install(activity, whenDone)`: `TermuxInstaller.setupBootstrapIfNeeded` calls it
-  after the primary-user check. compat looks for a bundled
+  after the primary-user check. It looks for a bundled
   `bootstrap/bootstrap-<arch>.zip` matching `Build.SUPPORTED_ABIS` and installs the
   first one through `BootstrapInstaller`. That class is upstream's extraction
   logic reading from assets, and it refuses entries or symlinks that would land
-  outside the staging prefix. With no asset, compat only prepares the system-shell
-  directories. system always just prepares HOME and TMPDIR.
-- `runtimeNotice()`: the text shown in `neoterm_runtime_notice`. In compat it
-  says whether a prefix is installed (`$PREFIX/bin/bash` exists), not whether the
-  APK bundles a bootstrap. The bootstrap installs in the background on first
+  outside the staging prefix. With no asset, it only prepares the system-shell
+  directories (HOME and TMPDIR).
+- `runtimeNotice()`: the text shown in `neoterm_runtime_notice`. It says whether
+  a prefix is installed (`$PREFIX/bin/bash` exists), not whether the APK bundles
+  a bootstrap. The bootstrap installs in the background on first
   launch, and the notice is refreshed when the first session starts, so once the
   install has finished it reads "Termux-compatible runtime".
 
 The `stageCommandroidBootstrap` task in `app/build.gradle` stages the bootstrap
 asset from `-PcommandroidBootstrapDir=<dir>`. The directory holds files named
 `bootstrap-aarch64.zip`, `bootstrap-arm.zip`, `bootstrap-i686.zip` and
-`bootstrap-x86_64.zip`, and the asset is added only to compat variants. Never pass
+`bootstrap-x86_64.zip`, and the asset is added to every variant. Never pass
 an official `com.termux` bootstrap: its binaries hardcode another app's prefix.
 
 Startup supports the primary Android user only. For secondary users and work
@@ -156,7 +156,7 @@ The **CMD** checkbox (`neoterm_cmd`) installs a `CmdTransmitTransform` as
 `InputEngine.transform` and opens the composer. At Transmit, the draft goes to
 `TranslateCommandUseCase`, together with the working directory of the session's
 foreground job (`TerminalSession.getCwd()`) and an environment snapshot from
-`FlavorRuntime.shellEnvironment`. A multi-line draft is translated as one
+`AppRuntime.shellEnvironment`. A multi-line draft is translated as one
 `&`-chained CMD command, so the translator's deletion guard tracks every
 directory a preceding `cd` may have reached. When the foreground job's working
 directory is unknown, the Transmit is refused instead of guessing. The result
@@ -199,9 +199,10 @@ control.
 
 - `:neoterm-input` and `:cmd-translator` stay pure Kotlin/JVM and are tested on
   the JVM. They must not depend on Android, the PTY or processes.
-- Flavor differences live in `app/src/compat`, `app/src/system` and the
-  termux-shared flavor resources. Shared code calls `FlavorRuntime` instead of
-  checking the flavor.
+- The choice between the bootstrap prefix and the system-shell fallback is made
+  in `AppRuntime`. The commandroid-line hooks in `TermuxService`,
+  `TermuxInstaller` and `NeoTermInputController` call it instead of choosing a
+  runtime themselves.
 - Changes to upstream Termux code stay narrow and are marked with NeoTerm or
   commandroid-line comments. Java and JNI namespaces stay `com.termux`.
 - User input reaches the PTY only through `TerminalView`'s direct path (keys and

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# Local equivalent of the "build" job in .github/workflows/debug_build.yml: lint both runtime
-# flavors, run every JVM suite once, and build both flavors' debug app and androidTest APKs.
+# Local equivalent of the "build" job in .github/workflows/debug_build.yml: lint, run every JVM
+# suite once, and build the debug app and androidTest APKs.
 # Extra arguments are passed to Gradle (e.g. -PcommandroidBootstrapDir=<dir>, see
 # docs/neoterm/BOOTSTRAP-BUILD.md). COMMANDROID_GRADLE_WORKERS overrides --max-workers.
 set -euo pipefail
@@ -15,9 +15,9 @@ export TERMUX_APP_VERSION_NAME=0.118.3-commandroid.1
 export TERMUX_APK_VERSION_TAG=debug
 export TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS=0
 ./gradlew --stacktrace --no-daemon --max-workers="${COMMANDROID_GRADLE_WORKERS:-2}" \
-    :app:lintCompatDebug :app:lintSystemDebug \
+    :app:lintDebug \
     :neoterm-input:test :cmd-translator:test :terminal-emulator:testDebugUnitTest \
-    :app:testCompatDebugUnitTest :app:testSystemDebugUnitTest \
-    :app:assembleCompatDebug :app:assembleSystemDebug \
-    :app:assembleCompatDebugAndroidTest :app:assembleSystemDebugAndroidTest \
+    :app:testDebugUnitTest \
+    :app:assembleDebug \
+    :app:assembleDebugAndroidTest \
     "$@"

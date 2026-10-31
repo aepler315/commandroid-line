@@ -146,3 +146,14 @@ jobs:
           path: ${{ runner.temp }}/out/build-${{ matrix.arch }}.log
           retention-days: 30
           if-no-files-found: ignore
+
+  # Packages the archives just built into installable APKs and runs the instrumented suite
+  # with the bootstrap installed. Runs only when both architectures built and verified.
+  apk:
+    needs: build
+    uses: ./.github/workflows/bootstrap-apk.yml
+    with:
+      bootstrap_run_id: ${{ github.run_id }}
+    permissions:
+      contents: read
+      actions: read

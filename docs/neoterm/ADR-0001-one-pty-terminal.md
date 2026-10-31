@@ -1,6 +1,9 @@
-# ADR-0001: One PTY terminal; Commandroid as an input rewrite; two runtime flavors
+# ADR-0001: One PTY terminal; Commandroid as an input rewrite; one sideload runtime
 
-- Status: accepted (decided by the repository owner; implemented in commit `85bb558`)
+- Status: accepted (decided by the repository owner; implemented in commit `85bb558`).
+  Decision 5 amended on 2026-10-31: the `system` flavor was removed in `b473b51`
+  ([Amendment](#amendment-2026-10-31)). The original title ended "two runtime
+  flavors".
 - Date: 2026-10-31
 - Supersedes: the two-stack layout merged by PR #2 (`4a09acb`)
 
@@ -62,17 +65,21 @@ SDK 34, so only Android's `/system/bin/sh` and platform binaries could run.
    `TerminalSessionService`, the MVI view model/reducer, Canvas `NeoTermView`,
    `CommandroidActivity` (second launcher), their resources and tests, and
    Hilt/kapt were removed in `85bb558`.
-5. **Two runtime flavors** (product flavor dimension `runtime` in `:app` and
-   `:termux-shared`), sharing all source except `app/src/<flavor>/`:
-   - `compat`: application ID `com.commandroid_line`, **targetSdk 28**, so that
-     binaries in the app's own prefix (`/data/data/com.commandroid_line/files/usr`)
-     can `execve` — the same route Termux takes. It installs a bootstrap bundled as
-     an APK asset (`bootstrap/bootstrap-<arch>.zip`, Gradle
-     `-PcommandroidBootstrapDir=<dir>`) that must be built from source for that
-     prefix ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). Without one it falls back
-     to `/system/bin/sh` and says so in the runtime notice.
-   - `system`: application ID `com.commandroid_line.system`, targetSdk 34,
-     Android `/system/bin/sh` only (the previous NeoTerm runtime).
+5. **Runtime** (amended 2026-10-31, see [Amendment](#amendment-2026-10-31)).
+   The current decision is one app: application ID `com.commandroid_line`,
+   **targetSdk 28**, so that binaries in the app's own prefix
+   (`/data/data/com.commandroid_line/files/usr`) can `execve` — the same route
+   Termux takes. It installs a bootstrap bundled as an APK asset
+   (`bootstrap/bootstrap-<arch>.zip`, Gradle `-PcommandroidBootstrapDir=<dir>`)
+   that must be built from source for that prefix
+   ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). Without one it falls back to
+   `/system/bin/sh` and says so in the runtime notice.
+
+   As decided in `85bb558`, this was one of two runtime flavors (product flavor
+   dimension `runtime` in `:app` and `:termux-shared`): `compat` (the runtime
+   above) and `system` (application ID `com.commandroid_line.system`, targetSdk
+   34, Android `/system/bin/sh` only, the previous NeoTerm runtime). The `system`
+   flavor and the flavor dimension were removed in `b473b51`.
 6. **Identity** `com.commandroid_line` was chosen by the owner. It is spelled with
    an underscore because hyphens are not legal in Android application IDs
    (`com.commandroid-line` is rejected). The Java/resource namespace and JNI
@@ -83,14 +90,15 @@ SDK 34, so only Android's `/system/bin/sh` and platform binaries could run.
 
 ## Consequences
 
-- **compat is sideload only.** Google Play requires a current targetSdk; a
-  targetSdk 28 APK cannot be published there. Distribution is `adb install` or
-  manual sideloading, and only with the owner's explicit authorization.
+- **The app is sideload only.** Google Play requires a current targetSdk; a
+  targetSdk 28 APK cannot be published there, and the owner has decided never to
+  publish there. Distribution is `adb install` or manual sideloading, and only
+  with the owner's explicit authorization.
 - **A custom-prefix package build and repository are required.** Every package
   (bash, coreutils, apt, Node.js, git, …) must be compiled for
   `/data/data/com.commandroid_line/files/usr`, and `apt` needs a repository built
-  for that prefix. Until a bootstrap exists, the compat build behaves like the
-  system build (system shell, no Node/git), and the agent CLIs cannot run.
+  for that prefix. Until a bootstrap exists, the app falls back to Android's
+  system shell (no Node/git), and the agent CLIs cannot run.
 - **Phantom process killer (Android 12+).** Android may kill "phantom" child
   processes of an app beyond a system-wide limit (default 32) and child processes
   using excessive CPU in the background. Agent CLIs that spawn many processes
@@ -137,8 +145,43 @@ SDK 34, so only Android's `/system/bin/sh` and platform binaries could run.
   as `linker64 <binary>` to bypass the `execve` denial): fragile and unsupported;
   every child `execve` (shells, `node` spawning `git`, shebang scripts) must be
   wrapped, `/proc/self/exe` and `argv[0]` differ, and it relies on behavior Android
-  may close. Rejected; the system flavor stays system-shell only.
+  may close. Rejected; at the time the targetSdk 34 `system` flavor stayed
+  system-shell only (that flavor was later removed, see the Amendment).
 - **Reuse the `com.termux` identity** (to use official Termux bootstraps and
   repositories): conflicts with an installed Termux, would ship official binaries
   under a different app and signing key, and was not the owner's chosen identity.
   Rejected.
+
+## Amendment (2026-10-31)
+
+The owner decided that commandroid-line will never be published on Google Play.
+The `system` flavor (`com.commandroid_line.system`, targetSdk 34,
+`/system/bin/sh` only) existed only to have a Play-eligible build, so it was
+removed in `b473b51`. Decision 5 above now describes one app.
+
+What changed:
+
+- The `runtime` product flavor dimension is gone from `:app` and
+  `:termux-shared`. The former compat sources are in `app/src/main`, and
+  `com.commandroid.runtime.FlavorRuntime` became
+  `com.commandroid.runtime.AppRuntime` with the same API.
+- The application ID is `com.commandroid_line` and targetSdk is 28
+  (`targetSdkVersion=28` in `gradle.properties`). The bootstrap asset from
+  `-PcommandroidBootstrapDir` is attached to every variant. Without it the app
+  uses `com.neoterm.runtime.AndroidShellEnvironment` (`/system/bin/sh`), which
+  still exports `COMMANDROID_RUNTIME=system-shell` and
+  `NEOTERM_RUNTIME=android-system`.
+- Gradle tasks are the plain names (`:app:lintDebug`, `:app:testDebugUnitTest`,
+  `:app:assembleDebug`, `:app:assembleDebugAndroidTest`,
+  `:app:connectedDebugAndroidTest`), and there is one APK to install.
+
+Consequences:
+
+- No build of commandroid-line meets Google Play's target-API policy, by design.
+- There is no longer a targetSdk 34 build to fall back to. If a future Android
+  release refuses to install targetSdk 28 APKs, the app stops installing on such
+  devices, and no supported replacement route is known (exec through `linker64`
+  was rejected above).
+- The other decisions (one PTY stack, NeoTerm input, the opt-in CMD rewrite, the
+  `com.commandroid_line` identity, no official `com.termux` bootstrap) are
+  unchanged.

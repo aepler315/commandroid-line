@@ -3,6 +3,42 @@
 Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
 (`com.neoterm`) and PR #2 builds. Their test counts and task names are historical.
 
+## One sideload app; system flavor removed (2026-10-31)
+
+- The owner decided commandroid-line will never be published on Google Play, so
+  the Play-eligible `system` flavor (`com.commandroid_line.system`, targetSdk 34,
+  `/system/bin/sh` only) was removed in `b473b51`. The `runtime` flavor dimension
+  is gone from `:app` and `:termux-shared`. The entry below describes the
+  two-flavor layout as it was; it is no longer current.
+- commandroid-line is one app: `com.commandroid_line`, targetSdk 28
+  (`targetSdkVersion=28` in `gradle.properties`; `compatTargetSdkVersion` is
+  removed), sideload only. It runs Termux-compatible binaries from its own prefix
+  `/data/data/com.commandroid_line/files/usr` when a source-built bootstrap is
+  bundled with `-PcommandroidBootstrapDir`, and falls back to Android's
+  `/system/bin/sh` (`com.neoterm.runtime.AndroidShellEnvironment`, which still
+  exports `COMMANDROID_RUNTIME=system-shell` and `NEOTERM_RUNTIME=android-system`)
+  when none is bundled.
+- `com.commandroid.runtime.FlavorRuntime` is now `com.commandroid.runtime.AppRuntime`
+  (same API), and the former compat sources live in `app/src/main`.
+- Gradle tasks are the plain names again: `:app:lintDebug`, `:app:testDebugUnitTest`,
+  `:app:assembleDebug`, `:app:assembleDebugAndroidTest` and
+  `:app:connectedDebugAndroidTest`, plus `:neoterm-input:test`,
+  `:cmd-translator:test` and `:terminal-emulator:testDebugUnitTest`. CI uploads
+  the app APK alone as `commandroid-line-debug-<sha>`
+  (`commandroid-line_debug_universal.apk`) and the instrumentation APK as
+  `commandroid-line-androidTest-<sha>`. CI emulators are API 34 and 36.
+- Documentation updated for the single app; ADR-0001 has a dated amendment.
+- Verification at `b473b51`: lint passes, and locally app JVM 77, cmd-translator
+  44, neoterm-input 28, terminal-emulator 145 and bootstrap tool 44 tests pass.
+  On CI emulators, API 36 first failed
+  `CommandSubmissionTest.imeCommitEditorActionsAndHardwareEnterNeverSubmit`; it also failed on
+  `main` before this change. The `aaf200c` diagnostics showed Gboard consuming the hardware
+  Enter before the draft editor's `onKeyDown`, with nothing reaching the PTY.
+  `59f17d0` takes hardware Enter in `onKeyPreIme` and leaves it to the IME during a
+  composition; from there every test passes on API 34 and API 36. No device testing has
+  been done, the agent CLIs are unverified, and no bootstrap has been built
+  successfully yet (bootstrap CI run #6 was in progress).
+
 ## One PTY terminal, compat/system runtimes, documentation (2026-10-31)
 
 - One terminal stack (`85bb558`, [ADR-0001](docs/neoterm/ADR-0001-one-pty-terminal.md)).

@@ -39,7 +39,7 @@ import static com.termux.shared.termux.TermuxConstants.TERMUX_STAGING_PREFIX_DIR
 import static com.termux.shared.termux.TermuxConstants.TERMUX_STAGING_PREFIX_DIR_PATH;
 
 /**
- * compat flavor: installs a bootstrap bundled as an APK asset into this app's own prefix.
+ * Installs a bootstrap bundled as an APK asset into this app's own prefix.
  *
  * <p>Upstream termux-app v0.118.3 TermuxInstaller logic, changed only to read the archive from
  * assets instead of a native library, and to refuse archive entries or symlink paths that would

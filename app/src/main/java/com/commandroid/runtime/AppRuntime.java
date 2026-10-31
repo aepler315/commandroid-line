@@ -20,7 +20,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * "compat" runtime: Termux-compatible execution. targetSdk 28 lets binaries in this app's own
+ * Termux-compatible execution (the app's only runtime). targetSdk 28 lets binaries in this app's own
  * prefix ({@link TermuxConstants#TERMUX_PREFIX_DIR_PATH}) execve, so a bootstrap built from source
  * for that prefix runs bash, apt, node and the agent CLIs inside the upstream PTY terminal.
  *
@@ -28,10 +28,8 @@ import java.io.InputStream;
  * build carries none, the app says so and uses /system/bin/sh; it never downloads or substitutes an
  * official com.termux bootstrap, whose binaries hardcode another app's prefix.
  */
-public final class FlavorRuntime {
-    public static final String ID = "compat";
-
-    private FlavorRuntime() {}
+public final class AppRuntime {
+    private AppRuntime() {}
 
     /** True once a bootstrap's bash exists in this app's own prefix. */
     public static boolean hasInstalledPrefix() {

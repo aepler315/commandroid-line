@@ -23,13 +23,8 @@ import org.xmlpull.v1.XmlPullParser
 class StandaloneIdentityTest {
     private val context get() = RuntimeEnvironment.application
     private val packageManager get() = context.packageManager
-    /** Each runtime flavor installs as its own app with its own sandbox. */
-    private val expectedPackage = when (BuildConfig.FLAVOR) {
-        "compat" -> "com.commandroid_line"
-        "system" -> "com.commandroid_line.system"
-        else -> error("Unknown runtime flavor ${BuildConfig.FLAVOR}")
-    }
-    private val expectedName = if (BuildConfig.FLAVOR == "system") "commandroid-line (system shell)" else "commandroid-line"
+    private val expectedPackage = "com.commandroid_line"
+    private val expectedName = "commandroid-line"
 
     @Test fun installedIdentityOwnsItsDataWithoutJoiningTermuxSharedUid() {
         val info = packageManager.getPackageInfo(context.packageName, 0)
@@ -46,15 +41,15 @@ class StandaloneIdentityTest {
     }
 
     @Test fun userVisibleRuntimeTextNamesThisApp() {
-        val texts = listOf(R.string.neoterm_runtime_notice, R.string.neoterm_runtime_error,
+        val texts = listOf(R.string.commandroid_runtime_notice_compat, R.string.commandroid_runtime_notice_compat_no_bootstrap,
+            R.string.neoterm_runtime_error,
             R.string.neoterm_runtime_error_body, R.string.neoterm_unsupported_profile_body).map { context.getString(it) }
         texts.forEach { assertFalse(it, it.contains("NeoTerm")) }
         assertTrue(context.getString(R.string.neoterm_runtime_error).startsWith("commandroid-line"))
         assertTrue(context.getString(R.string.neoterm_unsupported_profile_body).contains("Open commandroid-line"))
-        // The system shell cannot run them, so the notice must not promise bundled CLIs.
-        val notice = context.getString(R.string.neoterm_runtime_notice)
-        assertFalse(notice, notice.contains("not bundled yet"))
-        assertTrue(notice, notice.contains("compat"))
+        // Without a bundled bootstrap the notice must say so and how to get one.
+        val fallback = context.getString(R.string.commandroid_runtime_notice_compat_no_bootstrap)
+        assertTrue(fallback, fallback.contains("system shell") && fallback.contains("-PcommandroidBootstrapDir"))
     }
 
     @Test fun manifestComponentsKeepExistingJavaClassesInsideOwnPackage() {

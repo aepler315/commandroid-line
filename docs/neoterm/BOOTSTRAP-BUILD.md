@@ -1,7 +1,7 @@
 # Building a genuine commandroid-line bootstrap
 
-The `compat` product flavor targets SDK 28, the route Termux uses so binaries in
-the app data directory can execute. Its application ID is `com.commandroid_line`
+commandroid-line targets SDK 28, the route Termux uses so binaries in the app
+data directory can execute. Its application ID is `com.commandroid_line`
 (Android IDs cannot contain hyphens, so the requested `com.commandroid-line` is
 spelled with an underscore). Its native package prefix is
 `/data/data/com.commandroid_line/files/usr`, and its home directory is
@@ -14,10 +14,12 @@ identity. They must not be reused, byte-patched, or installed from official
 Termux repositories in commandroid-line. Every package is rebuilt from source
 for this prefix.
 
-**Status: nothing has been built yet.** This repository contains source
-preparation, static validation tooling and a CI workflow. The CI workflow has
-not run. No `bootstrap-<arch>.zip` exists for this prefix, and nothing has been
-executed on an Android device. The acceptance targets are Claude Code, Codex
+**Status: no bootstrap has been built successfully yet.** This repository
+contains source preparation, static validation tooling and a CI workflow. The
+first four CI builds stopped before producing an archive (the fixes they led to
+are noted under "Source preparation"), and CI run #5 was in progress when this
+was written. No `bootstrap-<arch>.zip` exists for this prefix, and nothing has
+been executed on an Android device. The acceptance targets are Claude Code, Codex
 and OpenCode. They need at least Node.js (`nodejs-lts`), git and a working
 bash/coreutils/apt bootstrap. None of these has been shown to work yet.
 
@@ -125,6 +127,15 @@ Preparation makes these narrowly scoped source changes:
     `snapshot.debian.org` at 20241115T204403Z; the file there matches the pin.
   - `packages/nano/build.sh`: 8.3 is no longer under `dist/latest/`. Use
     `dist/v8/`; the file there matches the pin.
+  - `packages/dos2unix/build.sh`: `waterlan.home.xs4all.nl` now serves an HTML
+    page in place of 7.5.2. Use dos2unix's SourceForge release mirror; the file
+    there matches the pin. The fifth CI build stopped here.
+  - `packages/apr/build.sh`, `packages/apr-util/build.sh` and
+    `packages/subversion/build.sh` (git's dependencies): `dlcdn.apache.org`
+    and `downloads.apache.org` keep only current releases. apr 1.7.5 and
+    apr-util 1.6.3 already return 404 there. Use `archive.apache.org/dist/`,
+    whose files match the pins. The sixth CI build compiled every default
+    package and stopped at apr.
 
   An availability scan of the closure's download URLs (2026-10-31) found these
   three, plus GitHub archive and gnupg.org URLs that failed only through the
@@ -320,6 +331,28 @@ following:
    `commandroid-line-bootstrap-<arch>-<sha>`, kept for 30 days. The provenance
    record holds the commit, source revision, image ID and prepared source diff.
    A failed or timed-out build uploads its log instead.
+
+When both architectures built and verified, the `apk` job calls
+[`.github/workflows/bootstrap-apk.yml`](../../.github/workflows/bootstrap-apk.yml),
+which is also runnable by hand (`workflow_dispatch`, input `bootstrap_run_id`)
+once it is on the default branch. It:
+
+1. Downloads the run's bootstrap artifacts, checks each recorded SHA-256 and
+   runs `verify-artifact` again with this commit's tools.
+2. Builds `:app:assembleDebug -PcommandroidBootstrapDir=<aarch64 dir>`. It
+   checks that the APK holds `assets/bootstrap/bootstrap-aarch64.zip` and no
+   x86_64 archive, then uploads
+   `commandroid-line-debug-bootstrap-aarch64-<sha>` (APK, its SHA-256 and the
+   verifier output, kept 30 days).
+3. On API 34 and API 36 x86_64 emulators, installs a build that bundles the
+   x86_64 archive. It starts the app and waits for `$PREFIX/bin/bash`
+   ([`tools/ci/emulator-bootstrap-install.sh`](../../tools/ci/emulator-bootstrap-install.sh)),
+   records the `bash`, `node`, `npm` and `git` versions, and then runs
+   `:app:connectedDebugAndroidTest`. This is the only place
+   `InteractiveReadinessTest.compatPrefixBashAndNodeSeeAnInteractiveTerminal`
+   runs instead of skipping.
+
+None of this job has run yet: no bootstrap build has succeeded.
 
 GitHub's default runners may not fit a cold 120-package build within the job
 limit. Node.js/V8 in particular can take a long time on a few cores. Timing on

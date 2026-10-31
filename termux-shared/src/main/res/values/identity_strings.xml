@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Identity-dependent strings for the compat runtime flavor (see termux-shared/build.gradle). -->
+<!-- Identity-dependent strings (TERMUX_PACKAGE_NAME com.commandroid_line; see termux-shared/build.gradle). -->
 <!DOCTYPE resources [
     <!ENTITY TERMUX_APP_NAME "commandroid-line">
     <!ENTITY TERMUX_PREFIX_DIR_PATH "/data/data/com.commandroid_line/files/usr">

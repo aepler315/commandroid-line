@@ -1,8 +1,10 @@
 # Testing commandroid-line
 
-Two runtime flavors are under test: `compat` (`com.commandroid_line`, targetSdk 28)
-and `system` (`com.commandroid_line.system`, targetSdk 34). Every Android task is
-per flavor. Record the exact command, the source revision, the outcome and any
+One app is under test: `com.commandroid_line`, targetSdk 28. It runs from a
+bundled bootstrap's prefix when one is installed and from `/system/bin/sh`
+otherwise. (The targetSdk 34 `system` flavor was removed in `b473b51`; results
+recorded for it below are historical.) Record the exact command, the source
+revision, the outcome and any
 blocker. A check that was not run is recorded as **not run**, never as passed.
 A compiled androidTest APK is not a passed instrumented run.
 
@@ -12,14 +14,15 @@ A compiled androidTest APK is not a passed instrumented run.
 # Pure JVM suites
 ./gradlew :neoterm-input:test :cmd-translator:test :terminal-emulator:testDebugUnitTest
 # App JVM / Robolectric suites (sdk = [28])
-./gradlew :app:testCompatDebugUnitTest :app:testSystemDebugUnitTest
+./gradlew :app:testDebugUnitTest
 # Lint (must report 0 errors)
-./gradlew :app:lintCompatDebug :app:lintSystemDebug
+./gradlew :app:lintDebug
 # APKs
-./gradlew :app:assembleCompatDebug :app:assembleSystemDebug \
-          :app:assembleCompatDebugAndroidTest :app:assembleSystemDebugAndroidTest
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
 # Instrumented (needs an attached device or emulator)
-./gradlew :app:connectedCompatDebugAndroidTest :app:connectedSystemDebugAndroidTest
+./gradlew :app:connectedDebugAndroidTest
+# Bootstrap tooling
+python3 -m unittest discover -s tools/bootstrap -p 'test_*.py'
 ```
 
 After installing the app and test APKs yourself, you can also run the
@@ -27,7 +30,6 @@ instrumented suite directly:
 
 ```sh
 adb shell am instrument -w com.commandroid_line.test/androidx.test.runner.AndroidJUnitRunner
-adb shell am instrument -w com.commandroid_line.system.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 Reports:
@@ -35,21 +37,22 @@ Reports:
 - `neoterm-input/build/reports/tests/test`
 - `cmd-translator/build/reports/tests/test`
 - `terminal-emulator/build/reports/tests/testDebugUnitTest`
-- `app/build/reports/tests/test{Compat,System}DebugUnitTest`
-- `app/build/reports/lint-results-{compat,system}Debug.html`
+- `app/build/reports/tests/testDebugUnitTest`
+- `app/build/reports/lint-results-debug.html`
 - `app/build/reports/androidTests/connected/`
 
 ## Current results
 
-| Suite | Result at `85bb558` |
+| Suite | Result at `b473b51` |
 | --- | --- |
 | `:neoterm-input:test` | 28 tests pass (local, JDK 17) |
 | `:cmd-translator:test` | 44 tests pass (local) |
 | `:terminal-emulator:testDebugUnitTest` | 145 tests pass (local) |
-| `:app:testCompatDebugUnitTest` / `:app:testSystemDebugUnitTest` | 53 tests pass in each (local) |
-| `:app:lintCompatDebug` / `:app:lintSystemDebug` | 0 errors (local) |
-| Debug and androidTest APKs, both flavors | build (local) |
-| `:app:connectedCompatDebugAndroidTest` / `:app:connectedSystemDebugAndroidTest` | CI emulators (`.github/workflows/debug_build.yml`) at `e606a3a`, see below. Not run locally: the development container has no KVM. |
+| `:app:testDebugUnitTest` | 77 tests pass (local) |
+| Bootstrap tool tests (`tools/bootstrap/test_*.py`) | 44 tests pass (local) |
+| `:app:lintDebug` | 0 errors (local) |
+| `:app:assembleDebug`, `:app:assembleDebugAndroidTest` | build (local) |
+| `:app:connectedDebugAndroidTest` | CI emulators (`.github/workflows/debug_build.yml`, API 34 and 36): both API 34 and API 36 pass every test at `59f17d0` (see below). Not run locally: the development container has no KVM. |
 | Galaxy S26 Ultra ([DEVICE-TEST-PROTOCOL.md](DEVICE-TEST-PROTOCOL.md)) | **not run** |
 | Agent CLIs ([AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md)) | **not run** |
 
@@ -77,8 +80,8 @@ Reports:
 - `DirectInputTest` captures the real `TerminalSession` queue without starting
   JNI. It checks command bytes, hardware Delete and Enter, Ctrl-C/D/Z, Alt and
   arrow escapes, password log suppression, stale IMEs and DECSET 2004.
-- `StandaloneIdentityTest` reads merged manifest metadata and shortcuts per
-  flavor.
+- `StandaloneIdentityTest` reads merged manifest metadata and shortcuts, and
+  pins `com.commandroid_line` and the label `commandroid-line`.
 - `AndroidShellEnvironmentTest` covers the system-shell environment.
 - `StandaloneStartupTest` covers first-run setup and the unsupported-user
   rejection.
@@ -92,7 +95,8 @@ tests.
 
 - `CompositionInstrumentationTest` runs the shared IME contract on a device.
 - `NativePtyCompositionInstrumentationTest` drives the real activity, controller,
-  JNI PTY and `/system/bin/sh`, and pins the per-flavor application ID.
+  JNI PTY and `/system/bin/sh`, and pins the application ID
+  `com.commandroid_line`.
 
 PTY integration tests in `app/src/androidTest/java/com/commandroid/integration`
 (shared harness: `PtyTestSupport.kt`) run against the real `TermuxActivity`,
@@ -106,7 +110,8 @@ PTY integration tests in `app/src/androidTest/java/com/commandroid/integration`
   working.
 - `CommandSubmissionTest`: Transmit writes without executing and Enter submits
   exactly once; Enter with a pending draft does not submit; IME commit, editor
-  actions and hardware Enter in the draft never submit; CMD mode writes the POSIX
+  actions and hardware Enter in the draft never submit, and hardware Enter adds
+  a line break even when the IME would consume it (Gboard on API 36); CMD mode writes the POSIX
   translation for review and runs it only on Enter.
 - `UnicodeInputTest`: precomposed, CJK, supplementary-plane emoji, combining and
   ZWJ sequences arrive byte-exact and are shown by the emulator.
@@ -114,21 +119,39 @@ PTY integration tests in `app/src/androidTest/java/com/commandroid/integration`
   sessions work repeatedly without leaking finished sessions.
 - `InteractiveReadinessTest`: ttys and `TERM`, window size and SIGWINCH, a
   raw-mode arrow key read byte-exact, a bracketed-paste multi-line Transmit read
-  raw, the alternate screen, and the compat prefix's bash/node/git. That last test
-  is skipped (JUnit assumption) when no bootstrap is installed.
+  raw, the alternate screen, and the bootstrap prefix's bash/node/git. That last
+  test is skipped (JUnit assumption) when no bootstrap is installed.
 
 These tests write key bytes with `TerminalSession.write` and resize with
 `TerminalSession.updateSize`. They do not inject key events through
 `TerminalView` or the extra keys. They call Android's IME interfaces directly and
 do not drive a third-party keyboard.
 
-CI emulators, both flavors: **API 34** (Android 14) and **API 36** (Android 16,
-the Galaxy S26 Ultra's release).
+CI emulators: **API 34** (Android 14) and **API 36** (Android 16, the Galaxy
+S26 Ultra's release). The CI APK is built without a bootstrap, so the
+bootstrap-prefix test is skipped and the Termux-compatible runtime (bash, node,
+git) has no instrumented coverage yet.
 
-- **API 34**: every test passes in both flavors (head `4a2c9c8`). The compat
-  prefix test is skipped, because the CI compat APK is built without a bootstrap,
-  so the compat runtime (bash, node, git) has no instrumented coverage yet.
-- **API 36**: added after `4a2c9c8`; first results are **pending**.
+- **`b473b51` (one app)**: API 34 passes every test. API 36 passes 37 of 38.
+  The failing test is `CommandSubmissionTest.imeCommitEditorActionsAndHardwareEnterNeverSubmit`:
+  after an injected hardware Enter the draft is unchanged, where a line break
+  is expected. It failed the same way on `main` (`8edfcb5`) for both former
+  flavors, so it is specific to Android 16, not to targetSdk. Since `aaf200c` the test
+  reports the draft, selection, focus owner, IME and whether the PTY saw the
+  command, then retries once after `restartInput`. Its first run (`aaf200c`)
+  showed: the editor was focused and composing, the cursor was at the end, the
+  active IME was Gboard (`com.google.android.inputmethod.latin`; the API 34
+  image uses AOSP LatinIME), the draft was unchanged even after
+  `restartInput`, and nothing reached the PTY. So the "never submit" invariant
+  held, but the IME consumed the hardware Enter before the editor's
+  `onKeyDown`. `CompositionEditText` now takes a hardware Enter in
+  `onKeyPreIme`, before the IME. While the IME holds a composition, Enter is
+  left to the IME so it can confirm CJK candidates. With that fix (`59f17d0`)
+  every test passes on API 34 and API 36. Real Gboard and Samsung Keyboard behaviour with a Bluetooth
+  keyboard is a device check (DEVICE-TEST-PROTOCOL.md).
+- **API 34, two-flavor build** (historical, head `4a2c9c8`): every test passed
+  in both the compat and the former system flavor.
+- **API 36**: first run at `8edfcb5` showed the single failure above; all tests pass from `59f17d0`.
 - **API 30** (Android 11) ran until `4a2c9c8`, where every test passed. It was
   dropped because no target device runs it. Android 11's toybox `stty` refused
   every option that changes the tty mode (`-icanon`, `-echo`, `-isig`, `-icrnl`).
@@ -162,9 +185,10 @@ the Galaxy S26 Ultra's release).
 - Automated surrogate safety does not promise one-grapheme deletion for every
   emoji sequence. Android and the IME handle grapheme editing, so test vendor
   behavior explicitly.
-- Do not mark the agent CLI matrix passed on the strength of a system-shell APK,
-  JVM queue tests, a CI emulator run or archived NeoTerm builds.
+- Do not mark the agent CLI matrix passed on the strength of an APK without a
+  bootstrap (system-shell fallback), JVM queue tests, a CI emulator run or
+  archived NeoTerm builds.
 - Results from before PR #2 (the `com.neoterm` and `com.termux` builds in
   [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md) and
   [VERIFICATION.md](VERIFICATION.md)) are historical and say nothing about the
-  current APKs.
+  current APK.

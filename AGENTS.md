@@ -10,19 +10,20 @@ opt-in Windows CMD → POSIX rewrite. Before you change anything, read
 - `terminal-emulator/`: upstream terminal parser, screen, `TerminalSession` and JNI PTY.
 - `terminal-view/`: upstream `TerminalView`: renderer, gestures, direct keys, InputConnection.
 - `termux-shared/`: upstream runtime, file system, shell environment and shared UI.
-  It has the `runtime` flavors. `TermuxConstants.TERMUX_PACKAGE_NAME` comes from
-  its per-flavor `BuildConfig`, so do not hardcode a package name or prefix.
+  `TermuxConstants.TERMUX_PACKAGE_NAME` comes from its `BuildConfig`
+  (`com.commandroid_line`), so do not hardcode a package name or prefix.
 - `app/src/main/`: upstream activity, service, installer and session management,
-  plus NeoTerm input (`java/com/neoterm/input/`) and the system-shell environment
-  (`java/com/neoterm/runtime/`).
-- `app/src/compat/` and `app/src/system/`: the only flavor-specific code
-  (`com.commandroid.runtime.FlavorRuntime`, compat `BootstrapInstaller`) and
-  resources. Shared code calls `FlavorRuntime` and never branches on the flavor.
+  plus NeoTerm input (`java/com/neoterm/input/`), the system-shell fallback
+  environment (`java/com/neoterm/runtime/`), the runtime selection
+  (`java/com/commandroid/runtime/AppRuntime.java`) and the bundled-bootstrap
+  installer (`java/com/termux/app/BootstrapInstaller.java`). It is one app,
+  `com.commandroid_line`, targetSdk 28, sideload only, never published on Google
+  Play.
 - `neoterm-input/`: pure Kotlin input policy and state machine. No Android, PTY or processes.
 - `cmd-translator/`: pure Kotlin Windows CMD → POSIX translator
   (`com.aepler.commandroid.domain`). No Android, PTY or processes. The app uses it
   only through `CmdTransmitTransform`, as an opt-in Transmit rewrite.
-- `tools/bootstrap/`: source-bootstrap tooling for the compat prefix (see
+- `tools/bootstrap/`: source-bootstrap tooling for the app's prefix (see
   `docs/neoterm/BOOTSTRAP-BUILD.md`).
 - `docs/neoterm/`: architecture, ADRs, build, test and device protocols, roadmap.
 
@@ -35,7 +36,7 @@ opt-in Windows CMD → POSIX rewrite. Before you change anything, read
   editor and runs only on an explicit Enter. Unsupported commands are refused and
   the draft is kept.
 - Never bundle, download, patch or copy official `com.termux` bootstraps or
-  packages, or the earlier `com.neoterm` ones. compat bootstraps must be built from
+  packages, or the earlier `com.neoterm` ones. Bootstraps must be built from
   source for `/data/data/com.commandroid_line/files/usr`.
 - Keep upstream changes narrow and marked. Keep the Java, resource and JNI
   namespaces as `com.termux`.
@@ -54,13 +55,13 @@ transform's output is validated like typed text.
 ## Build and verification
 Use JDK 17, the pinned Gradle 8.7 wrapper, AGP 8.5.2, Kotlin 1.9.24,
 SDK 34/build-tools 34.0.0 and NDK 22.1.7171670. Set `ANDROID_HOME` and
-`local.properties` as described in BUILD.md. Every task is per flavor:
+`local.properties` as described in BUILD.md. `tools/commandroid-debug.sh` runs
+the same lint, JVM and APK tasks as CI:
 - `./gradlew :neoterm-input:test :cmd-translator:test :terminal-emulator:testDebugUnitTest`: pure JVM suites.
-- `./gradlew :app:testCompatDebugUnitTest :app:testSystemDebugUnitTest`: app JVM/Robolectric suites.
-- `./gradlew :app:lintCompatDebug :app:lintSystemDebug`: lint, with zero errors.
-- `./gradlew :app:assembleCompatDebug :app:assembleSystemDebug :app:assembleCompatDebugAndroidTest :app:assembleSystemDebugAndroidTest`: APKs.
-- `./gradlew :app:connectedCompatDebugAndroidTest :app:connectedSystemDebugAndroidTest`: instrumented, needs an attached device or emulator.
-The old un-flavored names (`:app:testDebugUnitTest`, `:app:lintDebug`) no longer exist.
+- `./gradlew :app:testDebugUnitTest`: app JVM/Robolectric suites.
+- `./gradlew :app:lintDebug`: lint, with zero errors.
+- `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest`: app and instrumentation APKs.
+- `./gradlew :app:connectedDebugAndroidTest`: instrumented, needs an attached device or emulator.
 For input changes, write tests first. Test composition replacement and
 cancellation, Unicode, stale callbacks, mode changes, session switches and
 transmission/submission separately. For PTY changes, cover interrupts, EOF,

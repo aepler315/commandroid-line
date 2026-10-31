@@ -11,7 +11,7 @@ import android.widget.CheckBox
 import android.widget.CompoundButton
 import android.widget.RadioGroup
 import android.widget.TextView
-import com.commandroid.runtime.FlavorRuntime
+import com.commandroid.runtime.AppRuntime
 import com.termux.R
 import com.termux.app.TermuxActivity
 import com.termux.terminal.TerminalSession
@@ -92,7 +92,7 @@ class NeoTermInputController(private val activity: TermuxActivity) {
         cmd.setOnCheckedChangeListener(null)
         cmd.isChecked = false
         cmd.setOnCheckedChangeListener(cmdListener)
-        // Sessions are created after the flavor's runtime install, which can change the notice.
+        // Sessions are created after the runtime install (AppRuntime), which can change the notice.
         refreshRuntimeNotice()
         status.setText(R.string.neoterm_draft_label)
         render(false)
@@ -100,7 +100,7 @@ class NeoTermInputController(private val activity: TermuxActivity) {
     }
 
     fun refreshRuntimeNotice() {
-        runtimeNotice.setText(FlavorRuntime.runtimeNotice())
+        runtimeNotice.setText(AppRuntime.runtimeNotice())
     }
 
     fun inputView(): View = if (editor.engine.isComposing) editor else activity.terminalView
@@ -115,7 +115,7 @@ class NeoTermInputController(private val activity: TermuxActivity) {
         },
         environment = { cwd ->
             CmdTransmitTransform.parseEnvironment(
-                FlavorRuntime.shellEnvironment(activity).buildEnvironment(activity, false, cwd.path))
+                AppRuntime.shellEnvironment(activity).buildEnvironment(activity, false, cwd.path))
         },
     )
 

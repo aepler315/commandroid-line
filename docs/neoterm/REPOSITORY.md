@@ -14,9 +14,14 @@ Termux is https://github.com/termux/termux-app.
   JDK 17 toolchain, the Commandroid Windows CMD → POSIX translator, and a second,
   pipe-based terminal stack with its own launcher.
 - Commit `85bb558` resolves the two stacks into one PTY terminal, keeps the
-  translator as an opt-in Transmit rewrite, and adds the `compat` and `system`
-  runtime flavors under the `com.commandroid_line` identity
+  translator as an opt-in Transmit rewrite, and adds two runtime flavors,
+  `compat` (`com.commandroid_line`, targetSdk 28) and `system`
+  (`com.commandroid_line.system`, targetSdk 34)
   ([ADR-0001](ADR-0001-one-pty-terminal.md)).
+- Commit `b473b51` removes the `system` flavor and the flavor dimension, because
+  the owner will never publish the app on Google Play. commandroid-line is now one
+  sideload app, `com.commandroid_line`, targetSdk 28 (ADR-0001, amendment of
+  2026-10-31).
 
 Both feature branches are merged. New work goes on a topic branch and lands on
 `main` through a pull request. Pushing topic branches and opening draft PRs for
@@ -38,7 +43,7 @@ Earlier upstream and NeoTerm history is retained.
 
 The verification documents from that period are historical. They describe
 `com.neoterm` or `com.termux` builds from before PR #2 and say nothing about the
-current APKs: [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md),
+current APK: [STANDALONE-VERIFICATION.md](STANDALONE-VERIFICATION.md),
 [ENTER-AND-APT.md](ENTER-AND-APT.md), [HARDWARE-KEYBOARD.md](HARDWARE-KEYBOARD.md),
 [VERIFICATION.md](VERIFICATION.md), [PROGRESS.md](PROGRESS.md),
 [STANDALONE-PROGRESS.md](STANDALONE-PROGRESS.md), [REVIEW.md](REVIEW.md),

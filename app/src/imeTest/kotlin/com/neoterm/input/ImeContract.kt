@@ -114,6 +114,23 @@ abstract class ImeContract {
         editor.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
         assertEquals("first\n", value()); assertTrue(writes.isEmpty())
     }
+    @Test fun hardwareEnterIsTakenBeforeTheImeAndAddsLocalNewline() {
+        ic.commitText("first", 1)
+        assertTrue(editor.onKeyPreIme(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
+        assertTrue(editor.onKeyPreIme(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)))
+        assertEquals("first\n", value()); assertTrue(writes.isEmpty())
+    }
+    @Test fun hardwareEnterDuringImeCompositionIsLeftToTheIme() {
+        ic.setComposingText("ni", 1)
+        assertFalse(editor.onKeyPreIme(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
+        assertEquals("ni", value()); assertTrue(writes.isEmpty())
+    }
+    @Test fun ctrlOrAltEnterIsNotTakenBeforeTheIme() {
+        ic.commitText("first", 1)
+        val ctrl = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0, KeyEvent.META_CTRL_ON)
+        assertFalse(editor.onKeyPreIme(KeyEvent.KEYCODE_ENTER, ctrl))
+        assertEquals("first", value()); assertTrue(writes.isEmpty())
+    }
     @Test fun oldConnectionCannotRepopulateTransmittedText() {
         ic.commitText("once", 1); editor.engine.transmit(target)
         assertFalse(ic.commitText("once", 1))
