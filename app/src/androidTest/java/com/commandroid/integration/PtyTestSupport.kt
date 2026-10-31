@@ -64,6 +64,15 @@ internal fun utf8Hex(text: String): String =
     text.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
 /** Shell pipeline printing stdin as unseparated lower-case hex. */
+internal const val TRANSCRIPT_TAIL_LINES = 15
+
+/**
+ * Non-canonical, no-echo, no-signal input with explicit VMIN/VTIME: what a TUI's raw mode needs
+ * for key bytes. Spelled out instead of toybox's `raw` combo so a missing combo flag on an older
+ * toybox cannot leave the tty canonical. `$sttyStatus` keeps stty's exit status for the report.
+ */
+internal const val STTY_RAW = "stty -icanon -echo -isig -icrnl -ixon min 1 time 0; sttyStatus=\$?"
+
 internal const val HEX_PIPE = "od -An -v -tx1 | tr -d ' \\n'"
 
 internal fun waitUntil(message: String, timeoutMs: Long = TIMEOUT_MS, condition: () -> Boolean) {
@@ -166,7 +175,39 @@ internal class PtyHarness private constructor(val scenario: ActivityScenario<Ter
     fun awaitMarker(session: TerminalSession, tag: String, nonce: String, timeoutMs: Long = TIMEOUT_MS,
                     message: String = "Marker $tag did not appear") {
         val needle = marker(tag, nonce)
-        waitUntil(message, timeoutMs) { transcript(session).contains(needle) }
+        withTranscript(session) { waitUntil(message, timeoutMs) { transcript(session).contains(needle) } }
+    }
+
+    /**
+     * Appends the end of the session's transcript to a failure, so CI shows what the shell printed.
+     * Transcripts here hold only test fixtures and nonce markers, never user input.
+     */
+    fun <T> withTranscript(session: TerminalSession, block: () -> T): T = try {
+        block()
+    } catch (failure: AssertionError) {
+        val tail = transcript(session).trimEnd().lines().takeLast(TRANSCRIPT_TAIL_LINES).joinToString("\n")
+        throw AssertionError("${failure.message}\n--- transcript tail ---\n$tail", failure)
+    }
+
+    /** Emulator rows and columns, read on the main thread. */
+    fun emulatorSize(session: TerminalSession): Pair<Int, Int> = onMain { session.emulator.mRows to session.emulator.mColumns }
+
+    /**
+     * Waits until the view stops resizing the session (for example while the soft keyboard animates
+     * in) and returns the size it settled on.
+     */
+    fun awaitStableSize(session: TerminalSession, quietMs: Long = 1_000): Pair<Int, Int> {
+        var last = emulatorSize(session)
+        var since = SystemClock.uptimeMillis()
+        val deadline = since + TIMEOUT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            SystemClock.sleep(50)
+            val now = emulatorSize(session)
+            if (now != last) { last = now; since = SystemClock.uptimeMillis() }
+            else if (SystemClock.uptimeMillis() - since >= quietMs) return now
+        }
+        fail("Terminal size did not settle")
+        throw AssertionError()
     }
 
     fun valueOrNull(session: TerminalSession, tag: String, nonce: String): String? {
@@ -177,7 +218,7 @@ internal class PtyHarness private constructor(val scenario: ActivityScenario<Ter
     fun awaitValue(session: TerminalSession, tag: String, nonce: String, timeoutMs: Long = TIMEOUT_MS,
                    message: String = "Value $tag was not printed"): String {
         var value: String? = null
-        waitUntil(message, timeoutMs) { valueOrNull(session, tag, nonce)?.also { value = it } != null }
+        withTranscript(session) { waitUntil(message, timeoutMs) { valueOrNull(session, tag, nonce)?.also { value = it } != null } }
         return value!!
     }
 

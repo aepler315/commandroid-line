@@ -38,8 +38,18 @@ class InteractiveReadinessTest {
     @Test fun windowSizeMatchesTheEmulatorAndResizeDeliversSigwinch() {
         PtyHarness.launch().use { h ->
             val shell = h.openSession("itest winsize")
-            val size = h.capture(shell, "SIZE", "\"\$(stty size)\"")
-            val (rows, cols) = h.onMain { shell.emulator.mRows to shell.emulator.mColumns }
+            // The view resizes the session while the soft keyboard animates in; compare only a
+            // settled size, and retry if the view resized it between the two readings.
+            var rows = 0
+            var cols = 0
+            var size = ""
+            for (attempt in 1..5) {
+                val before = h.awaitStableSize(shell)
+                size = h.capture(shell, "SIZE", "\"\$(stty size)\"")
+                val after = h.emulatorSize(shell)
+                rows = after.first; cols = after.second
+                if (before == after) break
+            }
             assertEquals("TIOCGWINSZ does not match the emulator", "$rows $cols", size)
 
             // A child traps WINCH and reports the size it then sees; `sleep 1` lets the trap run.
@@ -47,6 +57,7 @@ class InteractiveReadinessTest {
             h.run(shell, "sh -c 'trap \"printf \\\"\\\\n%s_%s:%s:END\\\\n\\\" WINCH $nonce \\\"\\\$(stty size)\\\"\" WINCH; " +
                 "printf \"\\n%s_%s\\n\" WREADY $nonce; while :; do sleep 1; done'")
             h.awaitMarker(shell, "WREADY", nonce)
+            h.awaitStableSize(shell)
             val newCols = maxOf(20, cols - 7)
             val newRows = maxOf(8, rows - 3)
             try {
@@ -75,13 +86,13 @@ class InteractiveReadinessTest {
         PtyHarness.launch().use { h ->
             val shell = h.openSession("itest raw")
             val nonce = newNonce()
-            h.run(shell, "stty raw -echo; ${printMarker("RAWUP", nonce)}; " +
+            h.run(shell, "$STTY_RAW; ${printMarker("RAWUP", nonce)}; " +
                 "rk=\$(dd bs=1 count=3 2>/dev/null | $HEX_PIPE); stty sane; " +
-                printValue("RAW", nonce, "\"\$rk\""))
+                printValue("RAW", nonce, "\"\$sttyStatus:\$rk\""))
             h.awaitMarker(shell, "RAWUP", nonce)
             // Cursor-up as TerminalView sends it in normal cursor-key mode.
             h.write(shell, "\u001b[A")
-            assertEquals("Raw mode did not pass ESC [ A through unchanged", "1b5b41",
+            assertEquals("Raw mode did not pass ESC [ A through unchanged (stty status:hex)", "0:1b5b41",
                 h.awaitValue(shell, "RAW", nonce, 10_000))
         }
     }
@@ -94,9 +105,9 @@ class InteractiveReadinessTest {
             val payload = "\u001b[200~$body\u001b[201~"
             val count = payload.toByteArray(Charsets.UTF_8).size
             // The reader enables bracketed paste like an agent's TUI does, then reads raw bytes.
-            h.run(shell, "printf '\\033[?2004h'; stty raw -echo; ${printMarker("BPUP", nonce)}; " +
+            h.run(shell, "printf '\\033[?2004h'; $STTY_RAW; ${printMarker("BPUP", nonce)}; " +
                 "bp=\$(dd bs=1 count=$count 2>/dev/null | $HEX_PIPE); stty sane; printf '\\033[?2004l'; " +
-                printValue("BP", nonce, "\"\$bp\""))
+                printValue("BP", nonce, "\"\$sttyStatus:\$bp\""))
             h.awaitMarker(shell, "BPUP", nonce)
             waitUntil("Emulator did not enter bracketed paste mode") {
                 h.onMain { shell.emulator.isBracketedPasteModeEnabled }
@@ -107,7 +118,7 @@ class InteractiveReadinessTest {
             h.click(R.id.neoterm_transmit)
             assertEquals(h.onMain { it.getString(R.string.neoterm_transmitted) }, h.status())
             val received = h.awaitValue(shell, "BP", nonce, 10_000, "Reader did not receive the paste")
-            assertTrue("Bracketed paste did not arrive intact", received == utf8Hex(payload))
+            assertEquals("Bracketed paste did not arrive intact (stty status:hex)", "0:" + utf8Hex(payload), received)
             waitUntil("Reader did not leave bracketed paste mode") {
                 h.onMain { !shell.emulator.isBracketedPasteModeEnabled }
             }
