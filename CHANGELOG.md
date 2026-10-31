@@ -21,6 +21,15 @@ Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
   `bin/termux-exec-ld-preload-lib`, and rejects app components in the
   application-ID namespace. Both archives from that run pass every check once
   termux-tools' own files are corrected, so a rebuild is expected to pass.
+- Bootstrap run 41235528888 (head `ba7cf36`) passed both builds and every verify
+  step, and built the phone APK. On API 34 and API 36 emulators the prefix
+  installed and ran bash 5.2.37, node v22.14.0, npm 10.9.2 and git 2.49.0, and
+  40 of 41 connected tests passed, including the prefix test (bash on a tty,
+  SIGINT to a bash child, node raw mode and window size). The one failure was the
+  bracketed-paste test. With a bootstrap the session shell is bash, whose
+  readline re-enables bracketed paste at its next prompt, so the test's final
+  "left bracketed paste mode" check raced that prompt. The reader now stays in
+  the foreground (`read`) until its own `ESC[?2004l` has been checked.
 
 ## One sideload app; system flavor removed (2026-10-31)
 
