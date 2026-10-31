@@ -5,7 +5,7 @@ import android.content.Context;
 import android.os.Environment;
 import android.os.UserManager;
 import android.system.Os;
-import com.neoterm.runtime.AndroidShellEnvironment;
+import com.commandroid.runtime.FlavorRuntime;
 import com.termux.R;
 import com.termux.app.utils.CrashUtils;
 import com.termux.shared.file.FileUtils;
@@ -15,9 +15,9 @@ import com.termux.shared.termux.TermuxConstants;
 import java.io.File;
 import java.io.IOException;
 
-/** NeoTerm standalone startup. Historical bootstrap native sources remain upstream-only. */
+/** Startup. The runtime flavor decides what is installed (see com.commandroid.runtime.FlavorRuntime). */
 final class TermuxInstaller {
-    /** Initialize only NeoTerm's own sandbox; never extract a com.termux bootstrap. */
+    /** Initialize only this app's own sandbox; never extract an official com.termux bootstrap. */
     static void setupBootstrapIfNeeded(final Activity activity, final Runnable whenDone) {
         // NeoTerm still inherits static primary-user paths in session properties and providers.
         // Do not initialize a second profile with a different context.filesDir layout.
@@ -32,8 +32,7 @@ final class TermuxInstaller {
         }
 
         try {
-            new AndroidShellEnvironment(activity).prepare();
-            whenDone.run();
+            FlavorRuntime.install(activity, whenDone);
         } catch (IOException | SecurityException error) {
             new android.app.AlertDialog.Builder(activity)
                 .setTitle(R.string.neoterm_runtime_error)

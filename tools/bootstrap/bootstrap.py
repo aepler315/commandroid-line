@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare pinned NeoTerm package sources and inspect real bootstrap outputs.
+"""Prepare pinned commandroid-line package sources and inspect real bootstrap outputs.
 
 This tool never starts containers, compiles packages, or produces bootstrap zips.
 See docs/neoterm/BOOTSTRAP-BUILD.md for the separate source build procedure.
@@ -12,6 +12,7 @@ import os
 from pathlib import Path, PurePosixPath
 import posixpath
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -19,9 +20,28 @@ import sys
 import zipfile
 
 CONFIG_PATH = Path(__file__).with_name("config.json")
-MARKER = ".neoterm-bootstrap-source.json"
-CHANGED_FILES = ("scripts/properties.sh", "packages/apt/build.sh", "scripts/build-bootstraps.sh")
+MARKER = ".commandroid-line-bootstrap-source.json"
+BASE_CHANGED_FILES = ("scripts/properties.sh", "packages/apt/build.sh", "packages/termux-tools/build.sh",
+                      "scripts/build-bootstraps.sh")
+# Re-pins replace a pinned source checksum only where an on-the-fly archive was regenerated
+# with identical contents; each entry in config.json records how that was verified.
+REPIN_FILE = re.compile(r"(?:packages|x11-packages|root-packages)/[a-z0-9][a-z0-9+.-]*/build\.sh")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 MACHINES = {"aarch64": 183, "arm": 40, "i686": 3, "x86_64": 62}
+# An accidental edit must never silently select another app's sandbox.
+IDENTITY = {
+    "package_name": "com.commandroid_line", "app_namespace": "com.termux", "app_name": "commandroid-line",
+    "data_dir": "/data/data/com.commandroid_line", "rootfs": "/data/data/com.commandroid_line/files",
+    "prefix": "/data/data/com.commandroid_line/files/usr", "home": "/data/data/com.commandroid_line/files/home",
+    "package_manager": "apt",
+}
+# Official Termux and the earlier NeoTerm identity: binaries carrying either private
+# prefix are compiled for another app's sandbox and must never enter this bootstrap.
+FOREIGN_PREFIX = re.compile(rb"(?:/data/data|/data/user/[0-9]+)/(com\.(?:termux|neoterm))(?![A-Za-z0-9_.])")
+PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*")
+# Executables that must exist when an extra package is requested.
+EXTRA_EXECUTABLES = {"nodejs-lts": ("bin/node",), "git": ("bin/git",)}
+RUNTIME_DIRS = ("bin/", "lib/", "libexec/", "etc/", "var/lib/dpkg/")
 
 
 def require(condition, message):
@@ -35,15 +55,31 @@ def run(args, **kwargs):
 
 def configuration():
     config = json.loads(CONFIG_PATH.read_text())
-    # An accidental edit must never silently select official Termux's sandbox.
-    for key, expected in {
-        "package_name": "com.neoterm", "data_dir": "/data/data/com.neoterm",
-        "rootfs": "/data/data/com.neoterm/files", "prefix": "/data/data/com.neoterm/files/usr",
-        "home": "/data/data/com.neoterm/files/home", "package_manager": "apt",
-    }.items():
+    for key, expected in IDENTITY.items():
         require(config.get(key) == expected, f"Unsafe {key} in {CONFIG_PATH}; expected {expected}")
     require(re.fullmatch(r"[0-9a-f]{40}", config["source_revision"]), "Invalid pinned source revision")
+    extras = config.get("extra_packages", [])
+    require(isinstance(extras, list) and all(isinstance(name, str) and PACKAGE_NAME.fullmatch(name)
+                                             for name in extras), "extra_packages must be termux package names")
+    require(len(extras) == len(set(extras)), "Duplicate extra_packages entry")
+    config["extra_packages"] = extras
+    repins = config.get("checksum_repins", [])
+    require(isinstance(repins, list), "checksum_repins must be a list")
+    for repin in repins:
+        require(isinstance(repin, dict) and set(repin) == {"file", "url", "old", "new", "verified"},
+                "checksum_repins entries need exactly file, url, old, new and verified")
+        require(REPIN_FILE.fullmatch(repin["file"]) is not None, f"Unsafe checksum_repins file: {repin['file']}")
+        require(SHA256.fullmatch(repin["old"]) and SHA256.fullmatch(repin["new"]) and repin["old"] != repin["new"],
+                "checksum_repins old/new must be distinct SHA-256 digests")
+        require(repin["file"] not in BASE_CHANGED_FILES, "checksum_repins cannot target an identity-edited file")
+        require(isinstance(repin["verified"], str) and len(repin["verified"]) >= 20,
+                "checksum_repins entries must record how the new archive was verified")
+    config["checksum_repins"] = repins
     return config
+
+
+def changed_files(config):
+    return BASE_CHANGED_FILES + tuple(sorted({repin["file"] for repin in config["checksum_repins"]}))
 
 
 def replace_once(text, old, new):
@@ -67,11 +103,29 @@ def prepared_file(source, relative, config):
 \t\techo "# The main termux repository, without cloudflare cache"
 \t\techo "# deb https://packages.termux.dev/apt/termux-main/ stable main"
 \t} > $TERMUX_PREFIX/etc/apt/sources.list'''
-        new = '''\t# NeoTerm requires packages compiled for its own private prefix.
-\tprintf '%s\\n' '# NeoTerm: no package repository is configured.' \\
+        new = '''\t# commandroid-line requires packages compiled for its own private prefix.
+\tprintf '%s\\n' '# commandroid-line: no package repository is configured.' \\
 \t\t'# Do not enable official Termux repositories: their binary prefix is incompatible.' \\
 \t\t> "$TERMUX_PREFIX/etc/apt/sources.list"'''
         original = replace_once(original, old, new)
+    elif relative == "packages/termux-tools/build.sh":
+        # pkg's select_mirror rewrites an empty sources.list with a randomly chosen
+        # official Termux mirror from etc/termux/mirrors; ship no mirror definitions.
+        old = '''termux_step_post_make_install() {
+\tTERMUX_PKG_CONFFILES="$(cat "$TERMUX_PKG_BUILDDIR/conffiles")"
+}'''
+        new = '''termux_step_post_make_install() {
+\t# commandroid-line: official Termux mirrors serve binaries for another prefix.
+\trm -rf "$TERMUX_PREFIX/etc/termux/mirrors"
+\tTERMUX_PKG_CONFFILES="$(grep -v '^etc/termux/mirrors/' "$TERMUX_PKG_BUILDDIR/conffiles" || true)"
+}'''
+        original = replace_once(original, old, new)
+    elif relative != "scripts/build-bootstraps.sh":
+        repins = [repin for repin in config["checksum_repins"] if repin["file"] == relative]
+        require(repins, f"No source edit is defined for {relative}")
+        for repin in repins:
+            # Only the exact pinned digest is replaced; any other upstream drift is refused.
+            original = replace_once(original, repin["old"], repin["new"])
     else:
         # Upstream's local-source builder otherwise leaves both substitutions empty:
         # the package-manager variable is set only in child build-package processes,
@@ -95,16 +149,21 @@ def verify_source(source, config):
     require((source / MARKER).is_file() and (source / MARKER).read_text() == marker_contents(config),
             "Missing or stale preparation marker; use a fresh checkout with prepare")
     changed = set(run(["git", "-C", str(source), "diff", "--name-only", "HEAD"]).splitlines())
-    require(changed == set(CHANGED_FILES), f"Unexpected tracked source modifications: {sorted(changed)}")
-    for relative in CHANGED_FILES:
+    require(changed == set(changed_files(config)), f"Unexpected tracked source modifications: {sorted(changed)}")
+    for relative in changed_files(config):
         require((source / relative).read_text() == prepared_file(source, relative, config),
                 f"Source configuration drift in {relative}")
     # Source the actual properties script; checking only the configured JSON is insufficient.
     values = run(["bash", "-c", '. "$1"; printf "%s\\n" "$TERMUX_APP_PACKAGE" "$TERMUX_APP__DATA_DIR" '
                   '"$TERMUX__ROOTFS" "$TERMUX_PREFIX" "$TERMUX_ANDROID_HOME" "$TERMUX_APP__NAMESPACE"',
-                  "neoterm-verify", str(source / "scripts/properties.sh")]).splitlines()
+                  "commandroid-line-verify", str(source / "scripts/properties.sh")]).splitlines()
     expected = [config[key] for key in ("package_name", "data_dir", "rootfs", "prefix", "home", "app_namespace")]
-    require(values == expected, f"Effective source properties disagree with NeoTerm configuration: {values}")
+    require(values == expected, f"Effective source properties disagree with commandroid-line configuration: {values}")
+    # build-bootstraps.sh ignores "No build.sh script" failures, so a misspelled or
+    # subpackage-only --add name would silently be left out of the archive.
+    for name in config["extra_packages"]:
+        require((source / "packages" / name / "build.sh").is_file(),
+                f"Extra package {name} has no packages/{name}/build.sh in the pinned source")
     # Running in a previously used tree can mix foreign-prefix debs into the zip.
     require(not (source / "output").exists() or not any((source / "output").glob("*.deb")),
             "Source output/ already contains .debs; use a fresh dedicated build checkout")
@@ -118,7 +177,7 @@ def prepare(source, config):
                     config["source_url"], str(source)], check=True)
     require(run(["git", "-C", str(source), "rev-parse", "HEAD"]) == config["source_revision"],
             "Remote tag no longer matches the pinned revision; refusing to prepare")
-    for relative in CHANGED_FILES:
+    for relative in changed_files(config):
         (source / relative).write_text(prepared_file(source, relative, config))
     (source / MARKER).write_text(marker_contents(config))
     verify_source(source, config)
@@ -151,15 +210,34 @@ def preflight(source, config, check_docker, build_env):
         print("NDK r27c and JDK 17 verified. Check the complete pinned builder dependencies before compiling.")
 
 
+def build_args(arch, config, include_extra=True):
+    """Arguments for scripts/build-bootstraps.sh; every value is validated to be shell-safe."""
+    require(arch in MACHINES and arch in config["architectures"], f"Unsupported architecture {arch}")
+    args = ["--architectures", arch]
+    if include_extra and config["extra_packages"]:
+        args += ["--add", ",".join(config["extra_packages"])]
+    return args
+
+
 def relative_path(name):
     return bool(name) and not name.startswith("/") and "\\" not in name and all(
         part not in ("", ".", "..") for part in name.rstrip("/").split("/"))
 
 
-def verify_artifact(archive_path, arch, config):
+def foreign_prefix(data):
+    match = FOREIGN_PREFIX.search(data)
+    return match.group(1).decode() if match else None
+
+
+def installed_packages(status):
+    return {line[len("Package:"):].strip() for line in status.decode(errors="replace").splitlines()
+            if line.startswith("Package:")}
+
+
+def verify_artifact(archive_path, arch, config, include_extra=True):
     require(archive_path.name == f"bootstrap-{arch}.zip", "Artifact filename must identify its architecture")
-    old = b"/data/data/com.termux/"
     prefix = config["prefix"].encode()
+    extras = config["extra_packages"] if include_extra else []
     with zipfile.ZipFile(archive_path) as archive:
         names = archive.namelist()
         require(len(names) == len(set(names)), "Duplicate zip paths")
@@ -174,8 +252,9 @@ def verify_artifact(archive_path, arch, config):
                     f"Unsafe or duplicate symlink destination: {name}")
             normalized_target = posixpath.normpath(target)
             require(not target.startswith("/data/") or normalized_target.startswith(config["prefix"] + "/"),
-                    f"Symlink escapes NeoTerm's private prefix: {target}")
-            require(old.decode() not in target, "Official Termux prefix in symlink")
+                    f"Symlink escapes commandroid-line's private prefix: {target}")
+            found = foreign_prefix(target.encode())
+            require(found is None, f"Foreign private prefix {found} in symlink {name}")
             if not target.startswith("/"):
                 # Resolve .. lexically; symlinks may refer to siblings but must stay inside the zip root.
                 depth = len(PurePosixPath(name).parent.parts)
@@ -190,8 +269,9 @@ def verify_artifact(archive_path, arch, config):
             require((member.external_attr >> 16) & 0o170000 != 0o120000,
                     f"Zip contains an unsupported native symlink: {member.filename}")
             data = archive.read(member)
-            runtime = member.filename.startswith(("bin/", "lib/", "libexec/", "etc/", "var/lib/dpkg/"))
-            require(not runtime or old not in data, f"Official Termux private prefix in {member.filename}")
+            if member.filename.startswith(RUNTIME_DIRS):
+                found = foreign_prefix(data)
+                require(found is None, f"Foreign private prefix {found} in {member.filename}")
             if data.startswith(b"\x7fELF"):
                 require(len(data) >= 20 and data[5] == 1, f"Invalid ELF header: {member.filename}")
                 require(struct.unpack_from("<H", data, 18)[0] == MACHINES[arch],
@@ -208,9 +288,22 @@ def verify_artifact(archive_path, arch, config):
                 for line in archive.read(name).decode().splitlines():
                     require(not line.strip() or line.lstrip().startswith("#"),
                             f"Unexpected active apt source in {name}; repository handoff requires a separate review")
+        # pkg would otherwise replace the disabled sources.list with an official mirror.
+        for name in list(names) + list(links):
+            require(not name.startswith("etc/termux/mirrors/") and name != "etc/termux/chosen_mirrors"
+                    and not name.startswith("etc/termux/chosen_mirrors/"),
+                    f"Official Termux mirror definition shipped: {name}")
+        installed = installed_packages(archive.read("var/lib/dpkg/status"))
+        for package in extras:
+            require(package in installed, f"Requested extra package {package} is not installed in dpkg status")
+            for executable in EXTRA_EXECUTABLES.get(package, ()):
+                require(executable in names, f"Extra package {package} lacks {executable}")
+                require(archive.read(executable).startswith(b"\x7fELF"),
+                        f"Expected a compiled ELF executable at {executable}")
     digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
     print(json.dumps({"artifact": str(archive_path), "sha256": digest, "architecture": arch,
                       "source_revision": config["source_revision"], "prefix": config["prefix"],
+                      "extra_packages": extras,
                       "status": "static checks passed; Android execution remains unverified"}, indent=2))
 
 
@@ -223,9 +316,14 @@ def main():
         if command == "preflight":
             item.add_argument("--docker", action="store_true", help="Read-only managed local daemon check")
             item.add_argument("--build-env", action="store_true", help="Also require local NDK r27c and JDK17")
+    item = sub.add_parser("build-args", help="Print scripts/build-bootstraps.sh arguments for one ABI")
+    item.add_argument("--arch", required=True, choices=MACHINES)
+    item.add_argument("--without-extra-packages", action="store_true", help="Build only upstream's default set")
     item = sub.add_parser("verify-artifact")
     item.add_argument("archive", type=lambda value: Path(value).resolve())
     item.add_argument("--arch", required=True, choices=MACHINES)
+    item.add_argument("--without-extra-packages", action="store_true",
+                      help="Validate a default-set archive built with build-args --without-extra-packages")
     args = parser.parse_args()
     config = configuration()
     if args.command == "prepare":
@@ -234,8 +332,10 @@ def main():
         verify_source(args.source, config)
     elif args.command == "preflight":
         preflight(args.source, config, args.docker, args.build_env)
+    elif args.command == "build-args":
+        print(shlex.join(build_args(args.arch, config, not args.without_extra_packages)))
     else:
-        verify_artifact(args.archive, args.arch, config)
+        verify_artifact(args.archive, args.arch, config, not args.without_extra_packages)
 
 
 if __name__ == "__main__":

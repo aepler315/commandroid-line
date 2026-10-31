@@ -1,45 +1,113 @@
-# NeoTerm — standalone Android terminal
+# commandroid-line
 
-Independent development fork of official Termux v0.118.3. NeoTerm stages a full
-paragraph in a native Android editor for correction before explicit transmission.
-The current development build uses its own Android package, `com.neoterm`, and
-stages terminal input without sending speculative edits to the running program.
+commandroid-line is an independent GPL-3.0-only Android terminal, forked from
+official Termux v0.118.3. It uses one terminal stack, the upstream JNI PTY terminal
+(`TerminalSession`, `TerminalEmulator`, `TerminalView`). Interactive programs get
+a real tty, signals, raw mode, window size, alternate screen, bracketed paste and
+UTF-8. Two additions sit on top:
 
-Latest single-Enter correction and apt bootstrap progress:
-[ENTER-AND-APT.md](docs/neoterm/ENTER-AND-APT.md).
-Earlier physical-keyboard focus patch: [HARDWARE-KEYBOARD.md](docs/neoterm/HARDWARE-KEYBOARD.md).
+- **Staged input (NeoTerm).** Write and correct a whole prompt with Samsung
+  Keyboard or Gboard in a native editor. Nothing reaches the running program
+  until you tap **Transmit**. Then press **Enter ↵** separately to submit.
+- **CMD translation (Commandroid).** Tick **CMD** and Transmit rewrites a
+  Windows CMD command (`dir`, `copy`, `del`, `cd`, …) into POSIX. The result is
+  placed in the shell's line editor and runs only when you press Enter.
+  Unsupported commands are refused and your draft is kept.
 
-Choose **TEXT**, write/correct in the **Draft — not sent** editor, tap **Transmit**,
-then use **Enter ↵** separately to submit. **AUTO** keeps exact direct input until
-you tap **Compose**. **TERMINAL** preserves the upstream keyboard path. Line breaks
-and tabs require bracketed-paste support in the receiving application.
+The main acceptance targets are the agent CLIs **Claude Code, Codex and OpenCode**,
+run interactively in the compat runtime. They are **not yet verified** (see
+status below).
 
-See [architecture](docs/neoterm/ARCHITECTURE.md), [build](docs/neoterm/BUILD.md),
-[standalone verification](docs/neoterm/STANDALONE-VERIFICATION.md), [IME tests](docs/neoterm/TESTING.md),
-[package migration](docs/neoterm/MIGRATION.md), [bootstrap build preparation](docs/neoterm/BOOTSTRAP-BUILD.md),
-[roadmap and risks](docs/neoterm/ROADMAP.md),
-and [changelog](CHANGELOG.md).
+## Using the input panel
 
-**Runtime:** NeoTerm starts Android's `/system/bin/sh` with private home and
-temporary directories. It has a separate package, providers, permissions and UID
-declaration. Installation alongside official Termux, separate UIDs and preservation
-of a Termux sentinel are verified on an API 28 emulator. Physical-device and
-vendor-IME acceptance remain pending. Debug builds use a locally generated key.
-No upstream Termux bootstrap is bundled or installed. `pkg`/apt, bash, Python,
-Node, SSH and AI coding CLIs are unavailable until compatible packages are built
-and validated. The system shell runs with ordinary Android application privileges.
-Startup supports the primary Android system user only; secondary users and work
-profiles are blocked while shared upstream paths retain primary-user assumptions.
+- **AUTO** (default) sends keys directly to the terminal until you tap
+  **Compose**.
+- **TEXT** always composes in the **Draft — not sent** editor.
+- **TERMINAL** keeps the upstream Termux keyboard path. Use it for passwords.
+- **Transmit** writes the draft once, without Enter. If the program enabled
+  bracketed paste, the text is wrapped in it. Line breaks and tabs are sent only
+  when bracketed paste is on.
+- **Enter ↵** sends a single carriage return, and only when the draft is empty.
+- Drafts live only in memory. They are cleared when you switch sessions and lost
+  when the activity is recreated. NeoTerm never logs input text.
 
-Current standalone test/build/install evidence belongs in the standalone ledger
-linked above. [Milestone 1 verification](docs/neoterm/VERIFICATION.md) is archived
-evidence for the earlier `com.termux` input prototype and its APKs.
-Drafts are memory-only and are discarded on session changes or activity recreation.
-Use TERMINAL for passwords. No NeoTerm input text is logged.
+## Two runtime flavors
 
-The upstream README and attribution follow as historical reference. Its Termux
-download, package-management and uninstallation instructions apply to upstream
-Termux. NeoTerm's current build instructions are in [BUILD.md](docs/neoterm/BUILD.md).
+| Flavor | Application ID | targetSdk | Runtime |
+| --- | --- | --- | --- |
+| `compat` | `com.commandroid_line` | 28 | Termux-compatible. It installs a bootstrap bundled in the APK, built from source for `/data/data/com.commandroid_line/files/usr` (bash, apt, Node.js, git), and runs `$PREFIX/bin/login`. Without a bundled bootstrap it uses `/system/bin/sh` and says so. Sideload only. |
+| `system` | `com.commandroid_line.system` | 34 | Android's `/system/bin/sh` only. No Linux packages. |
+
+compat targets SDK 28 because Android denies `execve()` of files in an app's own
+data directory from targetSdk 29 onward. The ID uses an underscore because hyphens
+are not legal in Android application IDs. Official `com.termux` bootstraps or
+packages are never bundled or installed, because their binaries are built for
+another app's prefix. The two flavors install side by side. See
+[ADR-0001](docs/neoterm/ADR-0001-one-pty-terminal.md).
+
+## Building
+
+You need JDK 17, Android SDK platform 34, build-tools 34.0.0 and NDK 22.1.7171670.
+Full details are in [BUILD.md](docs/neoterm/BUILD.md).
+
+```sh
+export JAVA_HOME=/path/to/jdk-17 ANDROID_HOME=/path/to/android-sdk
+printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+# system flavor (no bootstrap needed)
+./gradlew :app:assembleSystemDebug
+
+# compat flavor without a bootstrap (falls back to /system/bin/sh)
+./gradlew :app:assembleCompatDebug
+
+# compat flavor with a source-built bootstrap for com.commandroid_line
+./gradlew :app:assembleCompatDebug -PcommandroidBootstrapDir=/path/to/dir-with-bootstrap-aarch64.zip
+```
+
+The bootstrap must be built from source with
+[BOOTSTRAP-BUILD.md](docs/neoterm/BOOTSTRAP-BUILD.md). The APKs are written to
+`app/build/outputs/apk/<flavor>/debug/commandroid-line_<flavor>_debug_<abi|universal>.apk`.
+
+## Status
+
+Verification state at commit `85bb558`:
+
+| Area | State |
+| --- | --- |
+| JVM suites (`:neoterm-input:test`, `:cmd-translator:test`, `:terminal-emulator:testDebugUnitTest`, `:app:testCompatDebugUnitTest`, `:app:testSystemDebugUnitTest`) | Pass locally (neoterm-input 28, cmd-translator 44, terminal-emulator 145, app 53 per flavor) |
+| Lint and debug/androidTest APK builds, both flavors | Pass locally |
+| Instrumented suite (`:app:connectedCompatDebugAndroidTest`, `:app:connectedSystemDebugAndroidTest`) on CI emulators | Pending first CI run. It cannot run in the development container (no KVM). |
+| Source-built compat bootstrap | Not built yet ([BOOTSTRAP-BUILD.md](docs/neoterm/BOOTSTRAP-BUILD.md)) |
+| Galaxy S26 Ultra device matrix ([DEVICE-TEST-PROTOCOL.md](docs/neoterm/DEVICE-TEST-PROTOCOL.md)) | Not run yet |
+| Claude Code, Codex, OpenCode in the compat runtime ([AGENT-CLI-ACCEPTANCE.md](docs/neoterm/AGENT-CLI-ACCEPTANCE.md)) | Not verified yet |
+| Real Samsung Keyboard / Gboard behavior | Not run yet |
+| Release signing, store distribution | Not configured. Debug builds use the local debug key. |
+
+Earlier device results (API 28 emulator coexistence, NeoTerm `com.neoterm`
+builds) are historical. They predate PR #2 and this identity and do not apply to
+the current APKs: [STANDALONE-VERIFICATION.md](docs/neoterm/STANDALONE-VERIFICATION.md),
+[ENTER-AND-APT.md](docs/neoterm/ENTER-AND-APT.md),
+[HARDWARE-KEYBOARD.md](docs/neoterm/HARDWARE-KEYBOARD.md),
+[VERIFICATION.md](docs/neoterm/VERIFICATION.md).
+
+## Documentation
+
+[Architecture](docs/neoterm/ARCHITECTURE.md) ·
+[ADR-0001](docs/neoterm/ADR-0001-one-pty-terminal.md) ·
+[Build](docs/neoterm/BUILD.md) ·
+[Testing](docs/neoterm/TESTING.md) ·
+[Device test protocol](docs/neoterm/DEVICE-TEST-PROTOCOL.md) ·
+[Agent CLI acceptance](docs/neoterm/AGENT-CLI-ACCEPTANCE.md) ·
+[Bootstrap build](docs/neoterm/BOOTSTRAP-BUILD.md) ·
+[Roadmap and risks](docs/neoterm/ROADMAP.md) ·
+[Repository](docs/neoterm/REPOSITORY.md) ·
+[Upstream and licensing](docs/neoterm/UPSTREAM.md) ·
+[Changelog](CHANGELOG.md)
+
+commandroid-line is not affiliated with or endorsed by Termux. The upstream
+README and its attribution follow as a historical reference. Its download,
+package-management and uninstallation instructions apply to upstream Termux, not
+to this app.
 
 <details>
 <summary>Archived upstream Termux README</summary>

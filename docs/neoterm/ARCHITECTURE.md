@@ -1,113 +1,204 @@
-# NeoTerm standalone architecture
+# commandroid-line architecture
+
+commandroid-line is a GPL-3.0-only fork of Termux v0.118.3. It has **one terminal
+stack**, the upstream JNI PTY terminal. NeoTerm staged input sits on top of it, and
+the Commandroid Windows CMD → POSIX translator is available as an opt-in input
+rewrite. [ADR-0001](ADR-0001-one-pty-terminal.md) records why there is one stack
+and why there are two runtime flavors.
 
 ## Objective and constraints
-Compose and correct a full prompt with a familiar Android IME before sending it
-to a running terminal program. Keep all speculative text outside the PTY. Preserve
-Termux's emulator, PTY JNI and direct input path while giving NeoTerm an independent
-Android identity and system-shell runtime. Agent use remains a future acceptance
-target because compatible Linux packages are not yet available.
 
-## Android identity and runtime
-The installed application ID is `com.neoterm`; the source/resource namespace stays
-`com.termux` so upstream component classes and JNI symbols remain valid. A separate
-Java namespace constant supplies component class names. Package-derived actions,
-permissions, provider authorities, shortcuts and preferences use `com.neoterm`.
-The manifest declares no shared UID. Debug builds use Android's local generated
-debug key; release signing is not configured.
+- Run interactive command-line programs in a real PTY. That includes the agent
+  CLIs Claude Code, Codex and OpenCode. The PTY provides signals, raw mode, window
+  size, an xterm-class terminal, alternate screen, bracketed paste and UTF-8
+  ([AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md)).
+- Let the user compose and correct a whole prompt with a familiar Android IME
+  (Samsung Keyboard, Gboard) before anything reaches the running program. All
+  speculative IME text stays outside the PTY.
+- Keep Termux's emulator, PTY JNI and direct key path intact, under an
+  independent Android identity.
 
-`com.neoterm.runtime.AndroidShellEnvironment` derives HOME/PREFIX/TMPDIR from
-`Context.filesDir`. On the primary user these correspond to
-`/data/data/com.neoterm/files/home`, `files/usr` and `files/usr/tmp`; Android may
-return the equivalent `/data/user/0/com.neoterm/files` path. Startup creates only
-private directories. The reserved PREFIX contains no Linux package environment.
-Both foreground sessions and background tasks use this environment client.
+## Module and source-set map
 
-The shell is Android's `/system/bin/sh` with a fixed system PATH and selected
-Android runtime variables. Loader injection and arbitrary inherited shell settings
-are excluded. Plain scripts use the system shell; declared shebangs are preserved.
-The app never extracts official `com.termux`-prefix packages. Its old bootstrap
-native build/download pipeline is disabled; terminal-emulator still supplies PTY
-JNI. See [MIGRATION.md](MIGRATION.md) for the remaining package work.
+| Location | Role |
+| --- | --- |
+| `terminal-emulator/` | Upstream. `com.termux.terminal.TerminalSession`: the JNI PTY, created by `create_subprocess` in `src/main/jni/termux.c`. `TerminalEmulator`: the VT/xterm parser, screen, alternate buffer and DECSET 2004. |
+| `terminal-view/` | Upstream. `com.termux.view.TerminalView`: renderer, gestures, direct keys and its own `InputConnection`. |
+| `termux-shared/` | Upstream runtime, file system, shell environment and shared UI. It carries the `runtime` flavors. `TermuxConstants.TERMUX_PACKAGE_NAME` is `com.termux.shared.BuildConfig.TERMUX_PACKAGE_NAME`, and every prefix and home path derives from it. Identity strings are in `src/compat/res` and `src/system/res`. |
+| `app/src/main/java/com/termux/` | Upstream `TermuxActivity`, `TermuxService`, `TermuxInstaller` (startup), the session client and settings. The few commandroid-line hooks call `com.commandroid.runtime.FlavorRuntime`. |
+| `app/src/main/java/com/neoterm/input/` | NeoTerm Android input: `NeoTermInputController`, `CompositionEditText`, and `CmdTransmitTransform` (the CMD rewrite). The layout is `app/src/main/res/layout/view_neoterm_input.xml`. |
+| `app/src/main/java/com/neoterm/runtime/` | `AndroidShellEnvironment` sets up the `/system/bin/sh` environment: private HOME and TMPDIR, the system PATH, `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`. |
+| `app/src/compat/` | compat flavor: `java/com/commandroid/runtime/FlavorRuntime.java`, `java/com/termux/app/BootstrapInstaller.java`, runtime strings and shortcuts. |
+| `app/src/system/` | system flavor: `java/com/commandroid/runtime/FlavorRuntime.java`, label and shortcuts. |
+| `neoterm-input/` | Pure Kotlin `com.neoterm.input.InputEngine`: modes, draft lifecycle, the Transmit/Submit policy and `TransmitTransform`. No Android, PTY or process code. |
+| `cmd-translator/` | Pure Kotlin `com.aepler.commandroid.domain`, used as `TranslateCommandUseCase(DefaultWindowsToLinuxTranslator())`. No Android, PTY or process code. |
+| `tools/bootstrap/` | Prepares and validates the source-built bootstrap for the compat prefix ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). |
 
-Startup supports the primary Android system user only. It checks identity before
-creating runtime directories and fails closed for secondary/work profiles or an
-unavailable user identity. This keeps static primary-user paths in shared upstream
-code from resolving to another profile's directories. Profile support needs a
-broader context-derived path migration and device acceptance.
+## Runtime flavors
 
-The system shell has ordinary application UID/SELinux permissions. It supplies
-neither adb-shell privileges nor apt/pkg, bash, Python, Node, SSH or AI coding CLIs.
-The input panel displays this runtime limit. Device coexistence, supported Android
-versions and real PTY behavior still require the tests in [TESTING.md](TESTING.md).
+The flavor dimension `runtime` is declared identically in `app/build.gradle` and
+`termux-shared/build.gradle`:
 
-## Inspected upstream flow
-- terminal-view/.../TerminalView.java onCreateInputConnection creates a
-  BaseInputConnection; commitText and finishComposingText send its Editable and
-  clear it. deleteSurroundingText emits terminal Delete key events.
-- TerminalView.inputCodePoint/onKeyDown translate Unicode/modifiers and keys.
-- terminal-emulator/.../TerminalSession.java write queues UTF-8 to the JNI PTY.
-- TerminalEmulator.java parses output, tracks alternate screen and DECSET 2004.
-- app/.../TermuxActivity.java owns terminal, drawer and extra-key ViewPager.
-- app/.../terminal/TermuxTerminalSessionClient.java selects/reconnects sessions.
-- app/.../terminal/io/TerminalToolbarViewPager.java has an older send-on-action
-  text field; NeoTerm uses its own explicitly staged editor and reuses only the
-  existing extra-key page. The competing text page is removed from this fork.
+| | `compat` | `system` |
+| --- | --- | --- |
+| Application ID | `com.commandroid_line` | `com.commandroid_line.system` |
+| targetSdk | 28 (`compatTargetSdkVersion` in `gradle.properties`) | 34 (`targetSdkVersion`) |
+| Default shell | `$PREFIX/bin/login` (bash) once a bootstrap is installed, otherwise `/system/bin/sh` | always `/system/bin/sh` |
+| Environment client | `TermuxShellEnvironmentClient` with an installed prefix (`TERM=xterm-256color`, `COLORTERM=truecolor`, `LANG=en_US.UTF-8`), otherwise `AndroidShellEnvironment` | `AndroidShellEnvironment` |
+| Linux packages | only from a bootstrap built from source for `/data/data/com.commandroid_line/files/usr` | none |
+| Distribution | sideload only (targetSdk 28) | sideload today |
 
-## Approaches and engineering decision
-A direct predictive InputConnection cannot safely correct text already owned by
-an arbitrary shell/editor. A custom keyboard loses the familiar IME. Use a native
-EditText with standard composition/selection and a narrow Kotlin lifecycle engine.
-This is an engineering decision under the user's authorization to proceed without
-routine design questions, not a claim of separate design approval.
+Both flavors use minSdk 26 and compileSdk 34, and they can be installed side by
+side. Both keep the `com.termux` Java and resource namespace (`com.termux.R`, and
+`com.termux.BuildConfig` with `FLAVOR` and `APPLICATION_ID`). Component classes
+such as `com.termux.app.TermuxActivity` keep their upstream names.
+
+### Runtime selection
+
+`com.commandroid.runtime.FlavorRuntime` exists once in each flavor's source set.
+It is the only place where the runtimes differ in code:
+
+- `hasInstalledPrefix()`: compat returns true when `$PREFIX/bin/bash` exists.
+  system always returns false.
+- `shellEnvironment(context)`: `TermuxService` uses it for every session and
+  background task.
+- `defaultExecutable()`: with a prefix, compat returns `null`, and upstream then
+  picks `$PREFIX/bin/login`. Without a prefix it returns `/system/bin/sh`. system
+  always returns `/system/bin/sh` and never probes for vendor login, bash or zsh.
+- `install(activity, whenDone)`: `TermuxInstaller.setupBootstrapIfNeeded` calls it
+  after the primary-user check. compat looks for a bundled
+  `bootstrap/bootstrap-<arch>.zip` matching `Build.SUPPORTED_ABIS` and installs the
+  first one through `BootstrapInstaller`. That class is upstream's extraction
+  logic reading from assets, and it refuses entries or symlinks that would land
+  outside the staging prefix. With no asset, compat only prepares the system-shell
+  directories. system always just prepares HOME and TMPDIR.
+- `runtimeNotice()`: the text shown in `neoterm_runtime_notice`. In compat it
+  says whether a bootstrap is present.
+
+The `stageCommandroidBootstrap` task in `app/build.gradle` stages the bootstrap
+asset from `-PcommandroidBootstrapDir=<dir>`. The directory holds files named
+`bootstrap-aarch64.zip`, `bootstrap-arm.zip`, `bootstrap-i686.zip` and
+`bootstrap-x86_64.zip`, and the asset is added only to compat variants. Never pass
+an official `com.termux` bootstrap: its binaries hardcode another app's prefix.
+
+Startup supports the primary Android user only. For secondary users and work
+profiles, `TermuxInstaller` shows an explanatory dialog and stops, because
+upstream path constants are primary-user paths.
+
+## Who handles interactive CLI programs
+
+The PTY terminal handles them, always. Every terminal session is a
+`TerminalSession` created by `TermuxService`: the first shell, new sessions,
+failsafe sessions, and foreground `RUN_COMMAND` sessions. `create_subprocess`
+opens a pseudo-terminal and calls `setsid()`, so the PTY becomes the shell's
+controlling tty. It also sets `IUTF8` and sets the window size with `TIOCSWINSZ`.
+As a result:
+
+- Ctrl-C from `TerminalView` or the extra-keys row writes `0x03` to the PTY. The
+  kernel line discipline turns it into SIGINT for the **foreground process
+  group**, so the running program is interrupted and the shell survives. Ctrl-D is
+  EOF at the line discipline. Ctrl-Z suspends the job when the shell has job
+  control.
+- A layout change calls `TerminalSession.updateSize`, which resizes the PTY. The
+  kernel then sends SIGWINCH to the foreground job, and `TIOCGWINSZ` reports the
+  new size.
+- Programs can switch termios to raw mode, use the alternate screen and enable
+  bracketed paste. `TerminalEmulator` implements all of these.
+
+The only non-PTY execution is upstream's background `RUN_COMMAND` path
+(`TermuxTask`, `Runtime.exec`) for plugin commands sent with
+`EXTRA_BACKGROUND`. It has no terminal and is not a way to run interactive
+programs. No other execution path for user programs exists. Adding one requires a
+new ADR.
+
+## Input data flow
+
+```
+ hardware key / extra keys ─────────────────────────────┐
+ IME in TERMINAL or AUTO (no Compose) → TerminalView ───┤
+                                                        ├─► TerminalSession.write ─► PTY ─► foreground program
+ IME in TEXT or AUTO+Compose → CompositionEditText      │
+        (Android Editable owns the draft)               │
+        Transmit → InputEngine.transmit ──[TransmitTransform?]──► payload ┘
+        Enter ↵  → InputEngine.submit  ── "\r" only, only with an empty draft
+```
+
+- **Modes** (`neoterm_mode_auto`, `neoterm_mode_text`, `neoterm_mode_terminal`).
+  AUTO is the default and stays direct until the user taps Compose
+  (`neoterm_compose`). TEXT always composes. TERMINAL returns focus to
+  `TerminalView` and the upstream key path.
+- **Transmit** (`neoterm_transmit`) runs these steps in order:
+  1. Finish the local composition.
+  2. Validate the draft. It must contain no C0 or C1 controls other than LF and
+     TAB, and no malformed surrogates.
+  3. Apply the optional transform, then validate the result again.
+  4. Write the text once to the bound running session, **without Enter**.
+
+  If the program enabled bracketed paste (DECSET 2004), the payload is wrapped in
+  `ESC[200~ … ESC[201~`. Without bracketed paste, a draft containing LF or TAB is
+  refused with `BRACKETED_PASTE_REQUIRED`. The draft is cleared only after a
+  successful write.
+- **Enter ↵** (`neoterm_enter`) writes only `"\r"`, and only when the draft is
+  empty. IME commit and finish actions, and Enter inside the draft, never write to
+  the terminal.
+- **Clear** (`neoterm_clear`) discards the draft locally.
+- **Session switch**: `InputEngine.bindSession` clears the draft and invalidates
+  stale IME connections, so text composed for one session cannot reach another.
+- The draft lives only in memory. It is never saved, autofilled, logged, or
+  replayed after the process or activity is recreated.
+
+### CMD rewrite path
+
+The **CMD** checkbox (`neoterm_cmd`) installs a `CmdTransmitTransform` as
+`InputEngine.transform` and opens the composer. At Transmit, each line of the
+draft goes to `TranslateCommandUseCase`, together with the current session's
+working directory (`TerminalSession.getCwd()`) and an environment snapshot from
+`FlavorRuntime.shellEnvironment`. The result decides what happens:
+
+- `Translated`: the line becomes the POSIX command. A `cd` updates the predicted
+  directory for the following lines.
+- `BuiltInAction`: the line becomes `clear`, `exit`, or a `printf` that lists the
+  supported subset.
+- `UnsupportedCommandError`: the whole Transmit returns `SendResult.REFUSED`.
+  Nothing is written and the draft is kept. The reason (`lastRefusal`) is shown in
+  `neoterm_draft_status`. An exception inside the transform is also treated as a
+  refusal.
+
+The translated text then follows the normal Transmit rules: validation, and
+bracketed paste for multi-line text. It lands in the shell's line editor and runs
+only when the user presses Enter. Submit and direct keys never go through the
+transform. ADR-0001 lists the known translator limitations.
 
 ## Ownership and state
-Android Editable is the only draft text/cursor/selection/composing-span authority.
-The pure Kotlin engine sees a Draft interface; it derives EMPTY/EDITING/COMPOSING
-from that interface rather than maintaining a text/cursor mirror. DIRECT means
-terminal owns input. A short TRANSMITTING state prevents reentrant send.
-All callbacks run on the main thread. InputConnectionWrapper delegates Android
-operations through the engine gate. Connection generations reject callbacks after
-mode changes, session changes, new connections or transmission; restartInput
-refreshes the IME. Native batch cleanup is tracked per connection and can outlive
-invalidation without mutating a new composition. Context-menu and other mutating
-callbacks use the same generation gate. Activity resume and delayed keyboard
-requests target the active editor. finishComposingText finalizes only local spans. commitText
-means local committed text, never terminal transmission or submission.
 
-AUTO is default. With no trustworthy application protocol it stays direct; tapping
-Compose is an explicit user signal to stage text in AUTO. TEXT opens composition;
-TERMINAL returns focus to TerminalView. Drafts survive mode changes in memory for
-the same session, never silently transmit. Session changes clear drafts, invalidate
-old connections and reset AUTO's explicit composition intent. Process/activity
-recreation starts with an empty draft (no saved state, disk, logs or replay).
+Android `Editable` is the only authority for draft text, cursor, selection and
+composing spans. `InputEngine` sees the draft through a `Draft` interface and
+derives EMPTY, EDITING and COMPOSING from it. DIRECT means the terminal owns
+input. A short TRANSMITTING state prevents reentrant sends. All callbacks run on
+the main thread. Connection generations reject IME callbacks that arrive after a
+mode change, a session change, a new connection or a transmission. NeoTerm never
+infers text or cursor ownership from the terminal screen, and it never repairs
+already-sent input by generating deletes.
 
-## UI and transport
-A compact always-visible mode row provides AUTO/TEXT/TERMINAL, Compose and Keys.
-The editor appears only for TEXT or explicitly opened AUTO composition. A labeled
-"Draft — not sent" area has Transmit, Clear and separate terminal Enter controls.
-Hardware Enter and IME actions in the draft insert newline or finish local input;
-they never write to the terminal. Terminal hotkeys stay on the existing view.
-The existing optional extra-key toolbar is toggled with Keys.
+## Privacy
 
-Transmit finishes local composition, validates scalar Unicode and control input,
-and writes one exact payload to the bound running session. It never appends Enter.
-Multiline and tab-containing drafts require terminal DECSET 2004; permitted paste
-uses bracketed framing and preserves LF. Unbracketed drafts permit printable text
-only. Reject ESC, CR, C0/C1 controls except LF/TAB and malformed surrogates, so a
-paste cannot inject a bracketed-paste terminator or terminal shortcut. No trimming,
-case conversion or normalization. Clear draft only after successful handoff.
-PTY queue handoff is not an acknowledgment from the foreground application;
-no automatic retry or exactly-once delivery guarantee across process death.
-Bracketed paste is an application contract, not proof of a safe prompt context.
+The composer is for non-sensitive text. Use TERMINAL mode for passwords. NeoTerm
+never logs draft text, key events or codepoints. Transport and transform
+exceptions are not logged either, because they may quote input. The composer
+disables view-state saving and autofill, and it requests no personalized
+learning. A third-party keyboard's own behavior is still outside the app's
+control.
 
-## Privacy and testing
-The composer is for non-sensitive natural language. No ECHO/password classification
-is claimed. Use TERMINAL for passwords; it preserves no predictive context and key
-logging is disabled even if upstream diagnostics request it. The composer disables
-view-state saving/autofill and requests no personalized learning (IME behavior is
-vendor controlled); it cannot guarantee third-party keyboard privacy.
+## Boundaries
 
-Pure JVM tests exercise engine transitions, output bytes and privacy of diagnostics.
-Robolectric and instrumentation tests exercise actual Android Editable and
-InputConnection operations. Real Gboard/Samsung swipe, autocorrect and reconnection
-must be validated on devices using the matrix in TESTING.md before release.
+- `:neoterm-input` and `:cmd-translator` stay pure Kotlin/JVM and are tested on
+  the JVM. They must not depend on Android, the PTY or processes.
+- Flavor differences live in `app/src/compat`, `app/src/system` and the
+  termux-shared flavor resources. Shared code calls `FlavorRuntime` instead of
+  checking the flavor.
+- Changes to upstream Termux code stay narrow and are marked with NeoTerm or
+  commandroid-line comments. Java and JNI namespaces stay `com.termux`.
+- User input reaches the PTY only through `TerminalView`'s direct path (keys and
+  the upstream paste menu), the extra keys, and `InputEngine` through
+  `NeoTermInputController`. Apart from these, only `TerminalEmulator` writes to the
+  PTY, to answer terminal queries.

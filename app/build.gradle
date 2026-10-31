@@ -1,8 +1,6 @@
 plugins {
     id "com.android.application"
     id "org.jetbrains.kotlin.android"
-    id "org.jetbrains.kotlin.kapt"
-    id "com.google.dagger.hilt.android"
 }
 
 android {
@@ -31,27 +29,24 @@ android {
         implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.7.0"
         implementation "androidx.lifecycle:lifecycle-service:2.7.0"
         implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
-        implementation "com.google.dagger:hilt-android:2.51.1"
-        kapt "com.google.dagger:hilt-compiler:2.51.1"
 
         implementation project(":neoterm-input")
+        implementation project(":cmd-translator")
         implementation project(":terminal-view")
         implementation project(":termux-shared")
     }
 
     defaultConfig {
-        applicationId "com.neoterm"
+        // Per-runtime identity, target SDK and placeholders are set in productFlavors below.
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         minSdkVersion project.properties.minSdkVersion.toInteger()
-        targetSdkVersion project.properties.targetSdkVersion.toInteger()
         versionCode 1002
         versionName "0.118.3"
 
         if (appVersionName) versionName = appVersionName
         validateVersionName(versionName)
 
-        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.neoterm"
-        manifestPlaceholders.TERMUX_APP_NAME = "NeoTerm"
+        manifestPlaceholders.TERMUX_APP_NAME = "commandroid-line"
         manifestPlaceholders.TERMUX_API_APP_NAME = "Termux:API"
         manifestPlaceholders.TERMUX_BOOT_APP_NAME = "Termux:Boot"
         manifestPlaceholders.TERMUX_FLOAT_APP_NAME = "Termux:Float"
@@ -67,6 +62,27 @@ android {
                 include 'x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a'
                 universalApk true
             }
+        }
+    }
+
+    // Two runtimes, one terminal stack (docs/neoterm/ARCHITECTURE.md, ADR-0001):
+    //  - compat: Termux-compatible execution. targetSdk 28 so binaries in the app's own prefix can
+    //    execve (Android denies that to targetSdk 29+). Sideload only; not eligible for Google Play.
+    //  - system: Play-eligible targetSdk 34 build limited to Android's /system/bin/sh.
+    // The identity must match termux-shared's flavor of the same name (TermuxConstants paths).
+    flavorDimensions = ["runtime"]
+    productFlavors {
+        compat {
+            dimension "runtime"
+            applicationId "com.commandroid_line"
+            targetSdkVersion project.properties.compatTargetSdkVersion.toInteger()
+            manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.commandroid_line"
+        }
+        system {
+            dimension "runtime"
+            applicationId "com.commandroid_line.system"
+            targetSdkVersion project.properties.targetSdkVersion.toInteger()
+            manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.commandroid_line.system"
         }
     }
 
@@ -96,6 +112,8 @@ android {
 
     lint {
         disable 'ProtectedPermissions'
+        // The compat flavor deliberately targets SDK 28 (see productFlavors).
+        disable 'ExpiredTargetSdkVersion', 'OldTargetApi'
         abortOnError true
         checkDependencies false
     }
@@ -116,10 +134,10 @@ android {
         variant.outputs.all { output ->
             if (variant.buildType.name == "debug") {
                 def abi = output.getFilter("ABI")
-                outputFileName = new File("neoterm_" + (apkVersionTag ? apkVersionTag : "debug") + "_" + (abi ? abi : "universal") + ".apk")
+                outputFileName = new File("commandroid-line_" + variant.flavorName + "_" + (apkVersionTag ? apkVersionTag : "debug") + "_" + (abi ? abi : "universal") + ".apk")
             } else if (variant.buildType.name == "release") {
                 def abi = output.getFilter("ABI")
-                outputFileName = new File("neoterm_" + (apkVersionTag ? apkVersionTag : "release") + "_" + (abi ? abi : "universal") + ".apk")
+                outputFileName = new File("commandroid-line_" + variant.flavorName + "_" + (apkVersionTag ? apkVersionTag : "release") + "_" + (abi ? abi : "universal") + ".apk")
             }
         }
     }
@@ -136,10 +154,6 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:1.1.5"
 }
 
-kapt {
-    correctErrorTypes true
-}
-
 task versionName {
     doLast {
         print android.defaultConfig.versionName
@@ -153,5 +167,43 @@ def validateVersionName(String versionName) {
         throw new GradleException("The versionName '"  + versionName + "' is not a valid version as per semantic version '2.0.0' spec in the format 'major.minor.patch(-prerelease)(+buildmetadata)'. https://semver.org/spec/v2.0.0.html.")
 }
 
-// NeoTerm's standalone Android-shell build does not embed upstream-prefix bootstraps.
-// Historical bootstrap C/assembly sources remain in src/main/cpp; PTY JNI comes from terminal-emulator.
+// Bootstraps. Only the compat flavor carries one, and only one built from source for its own
+// prefix (/data/data/com.commandroid_line/files/usr; see docs/neoterm/BOOTSTRAP-BUILD.md). An
+// official com.termux bootstrap must never be bundled: its binaries hardcode another app's prefix.
+// Pass -PcommandroidBootstrapDir=<dir with bootstrap-<arch>.zip>; the archives are packaged as
+// compat assets under bootstrap/. Without it the compat build falls back to the system shell and
+// says so in its runtime notice. Historical upstream native bootstrap sources remain in src/main/cpp.
+abstract class StageCommandroidBootstrap extends DefaultTask {
+    @Input abstract Property<String> getBootstrapDir()
+    @OutputDirectory abstract DirectoryProperty getOutputDir()
+
+    @TaskAction
+    void stage() {
+        def out = outputDir.get().asFile
+        project.delete(out)
+        def target = new File(out, "bootstrap")
+        target.mkdirs()
+        def source = bootstrapDir.get()
+        if (!source) return
+        def found = 0
+        ["aarch64", "arm", "i686", "x86_64"].each { arch ->
+            def zip = new File(source, "bootstrap-${arch}.zip")
+            if (zip.isFile()) {
+                project.copy { from zip; into target }
+                found++
+            }
+        }
+        if (found == 0) throw new GradleException("commandroidBootstrapDir has no bootstrap-<arch>.zip: " + source)
+    }
+}
+
+def stageBootstrap = tasks.register("stageCommandroidBootstrap", StageCommandroidBootstrap) {
+    bootstrapDir = (project.findProperty("commandroidBootstrapDir") ?: "").toString()
+    // Re-stage on every build: the archives may change while their directory name does not.
+    outputs.upToDateWhen { false }
+}
+androidComponents {
+    onVariants(selector().withFlavor(new kotlin.Pair("runtime", "compat"))) { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(stageBootstrap) { it.outputDir }
+    }
+}

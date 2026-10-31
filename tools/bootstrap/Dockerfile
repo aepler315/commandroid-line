@@ -9,10 +9,10 @@ COPY build/termux_download.sh /tmp/termux-packages/scripts/build/
 
 # The session certificate exists only during this RUN and is removed before the
 # layer is committed. Never put a proxy certificate or credential in COPY.
-RUN --mount=type=secret,id=proxy_ca,target=/run/proxy-ca.crt \
+RUN --mount=type=secret,id=proxy_ca,target=/run/proxy-ca.crt,required=false \
     apt-get update && apt-get install -yq ca-certificates && \
     if [ -s /run/proxy-ca.crt ]; then \
-      cp /run/proxy-ca.crt /usr/local/share/ca-certificates/neoterm-session-proxy.crt; \
+      cp /run/proxy-ca.crt /usr/local/share/ca-certificates/commandroid-line-session-proxy.crt; \
       update-ca-certificates; \
     fi && \
     apt-get -yq upgrade && \
@@ -27,7 +27,7 @@ RUN --mount=type=secret,id=proxy_ca,target=/run/proxy-ca.crt \
       "TERMUX_PKGS__BUILD__IS_DOCKER_BUILD=true /tmp/termux-packages/scripts/setup-android-sdk.sh" && \
     apt-get remove -yq --autoremove lsb-release software-properties-common && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    rm -f /usr/local/share/ca-certificates/neoterm-session-proxy.crt && update-ca-certificates
+    rm -f /usr/local/share/ca-certificates/commandroid-line-session-proxy.crt && update-ca-certificates
 
 USER builder:builder
 WORKDIR /home/builder/termux-packages

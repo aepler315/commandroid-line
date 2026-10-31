@@ -18,6 +18,10 @@
     <string name="neoterm_unsafe_control">Draft contains terminal control characters. Remove them before transmitting.</string>
     <string name="neoterm_invalid_unicode">Draft has an incomplete Unicode character. Correct it before transmitting.</string>
     <string name="neoterm_write_failed">Transmission failed. Draft kept; check the terminal before retrying.</string>
+    <string name="commandroid_cmd">CMD</string>
+    <string name="commandroid_cmd_description">Translate Windows CMD commands to POSIX when transmitting</string>
+    <string name="commandroid_cmd_on">CMD translation on · Transmit writes the POSIX command; press Enter to run it.</string>
+    <string name="commandroid_cmd_refused">Not transmitted: %1$s</string>
     <string name="neoterm_unsent_draft">Transmit or clear the draft before terminal Enter.</string>
     <string name="neoterm_runtime_notice">Android system shell · Linux packages and AI coding CLIs are not bundled yet.</string>
     <string name="neoterm_runtime_error">NeoTerm storage setup failed</string>

@@ -71,23 +71,6 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
-        <activity
-            android:name="com.aepler.commandroid.ui.CommandroidActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|density|screenLayout|uiMode|keyboard|keyboardHidden|navigation"
-            android:label="@string/commandroid_app_name"
-            android:launchMode="singleTask"
-            android:resizeableActivity="true"
-            android:taskAffinity="${TERMUX_PACKAGE_NAME}.commandroid"
-            android:windowSoftInputMode="adjustResize">
-            <!-- Second launcher icon; the lower priority keeps TermuxActivity as the package's launch intent. -->
-            <intent-filter android:priority="-1">
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
         <activity-alias
             android:name=".HomeActivity"
             android:exported="true"
@@ -206,14 +189,6 @@
                 android:value="Runs a terminal command requested by an authorized app via the RUN_COMMAND permission." />
         </service>
 
-        <service
-            android:name="com.aepler.commandroid.data.process.TerminalSessionService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Interactive terminal shell sessions" />
-        </service>
 
 
         <!-- This (or rather, value 2.1 or higher) is needed to make the Samsung Galaxy S8 mark the

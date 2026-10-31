@@ -35,6 +35,21 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Must match :app's runtime flavors. TermuxConstants derives every path from this identity.
+    flavorDimensions = ["runtime"]
+    productFlavors {
+        compat {
+            dimension "runtime"
+            buildConfigField "String", "TERMUX_PACKAGE_NAME", '"com.commandroid_line"'
+            buildConfigField "String", "COMMANDROID_RUNTIME", '"compat"'
+        }
+        system {
+            dimension "runtime"
+            buildConfigField "String", "TERMUX_PACKAGE_NAME", '"com.commandroid_line.system"'
+            buildConfigField "String", "COMMANDROID_RUNTIME", '"system"'
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -43,7 +58,7 @@ android {
     }
 
     publishing {
-        singleVariant("release")
+        singleVariant("compatRelease")
     }
 
     compileOptions {
@@ -68,7 +83,7 @@ afterEvaluate {
         publications {
             // Creates a Maven publication called "release".
             release(MavenPublication) {
-                from components.release
+                from components.compatRelease
                 groupId = 'com.termux'
                 artifactId = 'termux-shared'
                 version = '0.118.0'

@@ -1,4 +1,10 @@
+# JitPack builds the upstream-compatible terminal libraries on demand for Termux-style plugin
+# authors: :terminal-emulator and :terminal-view (variant "release") and :termux-shared
+# (variant "compatRelease", i.e. TERMUX_PACKAGE_NAME com.commandroid_line). Same toolchain as CI:
+# JDK 17 and the NDK pinned in gradle.properties (terminal-emulator reads JITPACK_NDK_VERSION).
 jdk:
-  - openjdk11
+  - openjdk17
 env:
-  JITPACK_NDK_VERSION: "21.1.6352462"
+  JITPACK_NDK_VERSION: "22.1.7171670"
+install:
+  - ./gradlew --no-daemon --max-workers=2 :terminal-emulator:publishToMavenLocal :terminal-view:publishToMavenLocal :termux-shared:publishToMavenLocal

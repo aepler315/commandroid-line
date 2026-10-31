@@ -18,7 +18,20 @@ interface TerminalTarget {
 enum class InputMode { AUTO, TEXT, TERMINAL }
 enum class InputPhase { DIRECT, EMPTY, EDITING, COMPOSING, TRANSMITTING }
 enum class SendResult { SENT, EMPTY, DIRECT, DISCONNECTED, UNSAFE_CONTROL, INVALID_UNICODE,
-    BRACKETED_PASTE_REQUIRED, WRITE_FAILED }
+    BRACKETED_PASTE_REQUIRED, WRITE_FAILED, REFUSED }
+
+/** Outcome of an optional rewrite applied to the draft at Transmit (for example CMD -> POSIX). */
+sealed interface Rewrite {
+    /** Text to send instead of the draft. It is validated like any draft. */
+    data class Text(val text: String) : Rewrite
+    /** Nothing is sent and the draft is kept. [reason] is shown to the user, never logged. */
+    data class Refused(val reason: String) : Rewrite
+}
+
+/** Rewrites a draft at Transmit. Runs on the engine's thread; must not write to the terminal. */
+fun interface TransmitTransform {
+    fun rewrite(draft: String): Rewrite
+}
 
 /** Main-thread confined. Owns lifecycle only; Draft owns all text and selection. */
 class InputEngine(private val draft: Draft) {
@@ -28,6 +41,12 @@ class InputEngine(private val draft: Draft) {
     private var sessionIdentity: String? = null
     private var generation = 0L
     private var transmitting = false
+
+    /** Optional Transmit rewrite. Only Transmit applies it; Submit and direct keys never do. */
+    var transform: TransmitTransform? = null
+    /** User-facing reason for the most recent [SendResult.REFUSED], cleared by the next Transmit. */
+    var lastRefusal: String? = null
+        private set
 
     val isComposing: Boolean
         get() = mode == InputMode.TEXT || (mode == InputMode.AUTO && explicitComposer)
@@ -75,8 +94,16 @@ class InputEngine(private val draft: Draft) {
         if (!isComposing || transmitting) return SendResult.DIRECT
         if (!connected(target)) return SendResult.DISCONNECTED
         draft.finishComposition()
-        val text = draft.text
+        lastRefusal = null
+        val draftText = draft.text
+        if (draftText.isEmpty()) return SendResult.EMPTY
+        validate(draftText)?.let { return it }
+        val text = when (val rewrite = rewrite(draftText)) {
+            is Rewrite.Text -> rewrite.text
+            is Rewrite.Refused -> { lastRefusal = rewrite.reason; return SendResult.REFUSED }
+        }
         if (text.isEmpty()) return SendResult.EMPTY
+        // A transform's output is held to the same rules as typed text.
         validate(text)?.let { return it }
         val bracketed = target!!.bracketedPaste
         if (!bracketed && (text.contains('\n') || text.contains('\t')))
@@ -106,6 +133,16 @@ class InputEngine(private val draft: Draft) {
             SendResult.SENT
         } catch (_: Exception) {
             SendResult.WRITE_FAILED
+        }
+    }
+
+    private fun rewrite(text: String): Rewrite {
+        val active = transform ?: return Rewrite.Text(text)
+        return try {
+            active.rewrite(text)
+        } catch (_: Exception) {
+            // Never log or surface the exception: it may quote the draft.
+            Rewrite.Refused("Translation failed")
         }
     }
 

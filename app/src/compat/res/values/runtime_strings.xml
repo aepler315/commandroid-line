@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="commandroid_runtime_notice_compat">Termux-compatible runtime · bash, apt and packages built for this app\'s own prefix.</string>
+    <string name="commandroid_runtime_notice_compat_no_bootstrap">Termux-compatible build without a bundled bootstrap · using Android\'s system shell. Rebuild with -PcommandroidBootstrapDir to bundle one.</string>
+</resources>

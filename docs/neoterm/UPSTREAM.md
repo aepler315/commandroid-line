@@ -1,32 +1,57 @@
 # Upstream and licensing
 
-Inspected 2026-10-29. Source: https://github.com/termux/termux-app.git.
-GitHub latest stable release: v0.118.3, published 2025-05-22;
-commit **5b657c6adf4304e5198951ce815fe0205dcac29c**.
-Newer v0.119.0 tags are beta releases. Development branch:
-`feature/neoterm-standalone`, following the input milestone on
-`feature/neoterm-input-engine`, originally based directly on the stable tag.
-The standalone work starts from `b650b532`. The original remote remains origin.
-The unrelated /workspace/Midio-5 checkout was not modified.
+Source: https://github.com/termux/termux-app.git, inspected 2026-10-29. The latest
+stable GitHub release is v0.118.3, published 2025-05-22, at commit
+**5b657c6adf4304e5198951ce815fe0205dcac29c**. Newer v0.119.0 tags are beta
+releases. commandroid-line is based directly on the stable tag. The fork's history
+is in [REPOSITORY.md](REPOSITORY.md): PR #1 (NeoTerm), PR #2 (Commandroid), then
+the one-stack resolution in `85bb558`.
 
-The application and new NeoTerm code are GPL-3.0-only. Preserve LICENSE.md,
-termux-shared/LICENSE.md and per-file notices: terminal emulator/view include
-Apache-2.0 Android Terminal Emulator code; shared code includes MIT, Apache-2.0
-and GPL-2.0 with Classpath exception components. Review each component's notices
-when distributing. A binary distributor must provide corresponding source,
-including NeoTerm changes and build scripts, and required license texts/notices.
-The name NeoTerm does not imply affiliation with or endorsement by Termux.
-No upstream copyright notices or assets have been removed.
+## What is kept from upstream
 
-Milestone 1 retained Termux's package identity and bootstrap; its verification is
-archived. The current application ID is `com.neoterm`, with no shared UID and a
-private Android system-shell environment. Java/resource/JNI namespaces remain
-upstream-compatible. No upstream-prefix bootstrap is embedded or installed.
-Debug signing uses Android's generated local key. Production signing, compatible
-Linux packages and real-device coexistence remain separate acceptance work.
-See [MIGRATION.md](MIGRATION.md) and [BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md).
+The JNI PTY (`terminal-emulator`), `TerminalEmulator`, `TerminalView`,
+`TermuxActivity`, `TermuxService`, the session client, settings and
+`termux-shared` are kept, with narrow, marked changes. The Java, resource and JNI
+namespaces stay `com.termux`. The compat flavor's `BootstrapInstaller` is
+upstream v0.118.3 `TermuxInstaller` extraction logic, changed in two ways: it
+reads the archive from APK assets, and it refuses entries that would escape the
+staging prefix.
 
-Full texts for the principal repository licenses and Classpath exception are kept
-in LICENSES/ (verbatim SPDX license-list-data texts). Per-file exceptions remain
-as specified by upstream; adding texts does not relicense those components.
-Review all transitive dependency notices before public binary distribution.
+## What differs from upstream
+
+- Application IDs are `com.commandroid_line` (compat) and
+  `com.commandroid_line.system` (system). There is no shared UID.
+  `TermuxConstants.TERMUX_PACKAGE_NAME` comes from the termux-shared flavor's
+  `BuildConfig`.
+- Debug builds use Android's locally generated key, and release signing is not
+  configured.
+- No upstream (`com.termux`-prefix) bootstrap is embedded, downloaded or
+  installed. compat installs only a bootstrap built from source for its own
+  prefix ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). system runs
+  `/system/bin/sh` only.
+- NeoTerm staged input (`:neoterm-input`, `com.neoterm.input`) and the Commandroid
+  translator (`:cmd-translator`) are new code
+  ([ARCHITECTURE.md](ARCHITECTURE.md)).
+- The older send-on-action text page of the extra-keys toolbar is removed in
+  favor of the NeoTerm composer.
+
+## Licensing
+
+The application and the new NeoTerm and commandroid-line code are GPL-3.0-only.
+Preserve `LICENSE.md`, `termux-shared/LICENSE.md` and the per-file notices. The
+terminal emulator and view include Apache-2.0 Android Terminal Emulator code.
+The shared code includes MIT, Apache-2.0 and GPL-2.0-with-Classpath-exception
+components. Review each component's notices when distributing. A binary
+distributor must provide the corresponding source, including the
+commandroid-line changes and build scripts, plus the required license texts and
+notices. Packages in a bootstrap carry their own licenses, and the bootstrap
+build must preserve them.
+
+Full texts of the principal repository licenses and the Classpath exception are
+kept in `LICENSES/`, as verbatim SPDX license-list-data texts. Per-file exceptions
+remain as upstream specifies them; adding the texts does not relicense those
+components. Review all transitive dependency notices before any public binary
+distribution. No upstream copyright notices or assets have been removed.
+
+The names commandroid-line, Commandroid and NeoTerm do not imply affiliation with
+or endorsement by Termux.

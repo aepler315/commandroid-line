@@ -7,11 +7,14 @@ import android.text.TextWatcher
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.RadioGroup
 import android.widget.TextView
+import com.commandroid.runtime.FlavorRuntime
 import com.termux.R
 import com.termux.app.TermuxActivity
 import com.termux.terminal.TerminalSession
+import java.io.File
 
 /** Activity-scoped; no draft persistence, terminal-screen heuristics, or logging. */
 class NeoTermInputController(private val activity: TermuxActivity) {
@@ -20,6 +23,7 @@ class NeoTermInputController(private val activity: TermuxActivity) {
     private val status = activity.findViewById<TextView>(R.id.neoterm_draft_status)
     private val modes = activity.findViewById<RadioGroup>(R.id.neoterm_modes)
     private val compose = activity.findViewById<Button>(R.id.neoterm_compose)
+    private val cmd = activity.findViewById<CheckBox>(R.id.neoterm_cmd)
     private val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
 
     init {
@@ -44,6 +48,18 @@ class NeoTermInputController(private val activity: TermuxActivity) {
             activity.findViewById<View>(id).setOnClickListener { inputView().requestFocus() }
         }
         compose.setOnClickListener { editor.engine.openComposer(); render(true) }
+        activity.findViewById<TextView>(R.id.neoterm_runtime_notice).setText(FlavorRuntime.runtimeNotice())
+        // Commandroid CMD translation is a Transmit rewrite into the PTY session; it never runs commands.
+        cmd.setOnCheckedChangeListener { _, checked ->
+            editor.engine.transform = if (checked) cmdTransform() else null
+            if (checked) {
+                editor.engine.openComposer()
+                status.setText(R.string.commandroid_cmd_on)
+            } else {
+                status.setText(R.string.neoterm_draft_label)
+            }
+            render(true)
+        }
         activity.findViewById<View>(R.id.neoterm_keys).setOnClickListener {
             activity.toggleTerminalToolbar()
             inputView().requestFocus()
@@ -77,6 +93,19 @@ class NeoTermInputController(private val activity: TermuxActivity) {
 
     fun isComposerFocused(): Boolean = editor.hasFocus() && editor.engine.isComposing
 
+    private fun cmdTransform() = CmdTransmitTransform(
+        workingDirectory = {
+            val session = activity.currentSession
+            File(session?.cwd ?: FlavorRuntime.shellEnvironment(activity).defaultWorkingDirectoryPath)
+        },
+        environment = {
+            val session = activity.currentSession
+            val env = FlavorRuntime.shellEnvironment(activity)
+            CmdTransmitTransform.parseEnvironment(
+                env.buildEnvironment(activity, false, session?.cwd ?: env.defaultWorkingDirectoryPath))
+        },
+    )
+
     private fun target(): TerminalTarget? {
         val session = activity.currentSession ?: return null
         return object : TerminalTarget {
@@ -105,6 +134,10 @@ class NeoTermInputController(private val activity: TermuxActivity) {
     }
 
     private fun showResult(result: SendResult) {
+        if (result == SendResult.REFUSED) {
+            status.text = activity.getString(R.string.commandroid_cmd_refused, editor.engine.lastRefusal ?: "")
+            return
+        }
         status.setText(when (result) {
             SendResult.SENT -> R.string.neoterm_transmitted
             SendResult.EMPTY -> R.string.neoterm_empty
@@ -114,6 +147,7 @@ class NeoTermInputController(private val activity: TermuxActivity) {
             SendResult.INVALID_UNICODE -> R.string.neoterm_invalid_unicode
             SendResult.WRITE_FAILED -> R.string.neoterm_write_failed
             SendResult.DIRECT -> R.string.neoterm_unsent_draft
+            SendResult.REFUSED -> R.string.neoterm_draft_label
         })
     }
 }

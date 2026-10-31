@@ -1,4 +1,4 @@
-name: NeoTerm checks and debug APK
+name: Commandroid checks and debug APKs
 
 on:
   push:
@@ -11,17 +11,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: neoterm-${{ github.event.pull_request.number || github.ref }}
+  group: commandroid-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+env:
+  # Must be semver 2.0.0 (validated by validateVersionName() in app/build.gradle).
+  TERMUX_APP_VERSION_NAME: 0.118.3-commandroid.1
+  TERMUX_APK_VERSION_TAG: debug
+  TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
-    env:
-      TERMUX_APP_VERSION_NAME: 0.118.3-neoterm.standalone2
-      TERMUX_APK_VERSION_TAG: standalone-debug
-      TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Java 17 for Android SDK tools and Gradle
@@ -34,31 +36,109 @@ jobs:
           cmdline-tools-version: '12266719'
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
+      # Both flavors compile against SDK 34; the compat flavor only targets SDK 28, which does
+      # not need the platforms;android-28 package.
       - name: Install pinned Android toolchain
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;22.1.7171670'
-      - name: Lint, app JVM tests and debug APK
-        run: ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon --max-workers=2
       - name: Bootstrap tooling regressions
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -m unittest discover -s tools/bootstrap -p 'test_*.py'
-      - name: All JVM tests and debug app/test APKs
-        run: ./tools/neoterm-debug.sh
-      - name: Upload test reports
+      # TODO: optionally build the compat flavor with the source-built bootstrap produced by the
+      # bootstrap workflow (download its artifact, pass -PcommandroidBootstrapDir=<dir>); see
+      # docs/neoterm/BOOTSTRAP-BUILD.md. Without it the compat APK falls back to /system/bin/sh.
+      # Same task list as tools/commandroid-debug.sh; every JVM suite runs exactly once.
+      - name: Lint both flavors, all JVM tests, debug app and androidTest APKs
+        run: >-
+          ./gradlew --stacktrace --no-daemon --max-workers=2
+          :app:lintCompatDebug :app:lintSystemDebug
+          :neoterm-input:test :cmd-translator:test :terminal-emulator:testDebugUnitTest
+          :app:testCompatDebugUnitTest :app:testSystemDebugUnitTest
+          :app:assembleCompatDebug :app:assembleSystemDebug
+          :app:assembleCompatDebugAndroidTest :app:assembleSystemDebugAndroidTest
+      - name: Upload test and lint reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neoterm-reports-${{ github.sha }}
+          name: commandroid-reports-${{ github.sha }}
           path: |
             **/build/reports/tests/**
             **/build/test-results/**
-            app/build/reports/lint-results-debug.*
+            app/build/reports/lint-results-*.*
           if-no-files-found: ignore
-      - name: Upload development APKs
+      - name: Upload compat debug APKs
         uses: actions/upload-artifact@v4
         with:
-          name: neoterm-standalone2-debug-${{ github.sha }}
+          name: commandroid-compat-debug-${{ github.sha }}
           path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/androidTest/debug/*.apk
+            app/build/outputs/apk/compat/debug/*.apk
+            app/build/outputs/apk/androidTest/compat/debug/*.apk
           if-no-files-found: error
+      - name: Upload system debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: commandroid-system-debug-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/system/debug/*.apk
+            app/build/outputs/apk/androidTest/system/debug/*.apk
+          if-no-files-found: error
+
+  # Both flavors' instrumentation tests on an emulator, in parallel with "build". The flavors have
+  # distinct application IDs (com.commandroid_line, com.commandroid_line.system) and install side
+  # by side.
+  instrumented:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Java 17 for Android SDK tools and Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '12266719'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install pinned Android toolchain
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;22.1.7171670'
+      # The emulator runner executes each script line in its own shell and stops at the first
+      # failing line, so the Gradle status and the logcat dump share one line: logcat is captured
+      # before the emulator shuts down whether or not the tests pass, and the status is kept.
+      - name: Connected tests for both flavors
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            mkdir -p build/ci-logs
+            status=0; ./gradlew --continue :app:connectedCompatDebugAndroidTest :app:connectedSystemDebugAndroidTest --no-daemon --max-workers=2 || status=$?; adb logcat -d > build/ci-logs/logcat-api${{ matrix.api-level }}.txt || true; exit $status
+      - name: Upload androidTest reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commandroid-androidTest-api${{ matrix.api-level }}-${{ github.sha }}
+          path: |
+            app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**
+          if-no-files-found: ignore
+      - name: Upload logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commandroid-logcat-api${{ matrix.api-level }}-${{ github.sha }}
+          path: build/ci-logs/
+          if-no-files-found: ignore
