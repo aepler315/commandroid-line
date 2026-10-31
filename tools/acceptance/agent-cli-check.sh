@@ -3,7 +3,8 @@
 #
 # commandroid-line agent CLI acceptance helper (docs/neoterm/AGENT-CLI-ACCEPTANCE.md).
 #
-# Run it INSIDE the app's terminal session, in the compat runtime:
+# Run it INSIDE the app's terminal session, with a bundled bootstrap installed
+# (Termux-compatible runtime, prefix /data/data/com.commandroid_line/files/usr):
 #     sh agent-cli-check.sh [--resize] [--interrupt]
 #
 # It is read-only and non-destructive: it installs nothing, changes no terminal
@@ -109,6 +110,8 @@ case "${PREFIX:-}" in
         else
             fail prefix-identity "compat prefix has no bin/bash (no bootstrap installed)"
         fi ;;
+    # com.commandroid_line.system was the targetSdk 34 "system" flavor, removed in
+    # b473b51. Kept so a leftover install of it is still reported clearly.
     */com.commandroid_line.system/*)
         fail prefix-identity "system flavor: agent CLIs need the compat runtime" ;;
     "")
@@ -172,7 +175,7 @@ case "$locale_value" in
 esac
 info unicode "visual check: é ñ ü 中文 日本語 한국어 👩‍💻 e$(printf '\314\201')"
 
-# --- Toolchain from the compat bootstrap -----------------------------------
+# --- Toolchain from the bundled bootstrap ----------------------------------
 if have node; then
     capture node --version
     if version_ok node "$NODE_VERSION_RE"; then

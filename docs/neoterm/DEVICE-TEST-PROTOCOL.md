@@ -1,13 +1,15 @@
 # Device test protocol: Samsung Galaxy S26 Ultra
 
-**Status: none of this protocol has been run yet.** No device or emulator was
-reachable from the development sessions that produced commit `85bb558`. Every
+**Status: none of this protocol has been run yet.** No device testing has been
+done. No device or emulator was reachable from the development sessions that
+produced commits `85bb558` through `b473b51`. Every
 result row below is blank until someone runs it on the phone and records the
 evidence. A compiled test APK, a passing JVM suite or a CI emulator run does not
 fill in any row of the manual matrix.
 
-This protocol covers both runtime flavors, `compat` (`com.commandroid_line`) and
-`system` (`com.commandroid_line.system`). For the agent CLI checks, see also
+This protocol covers the one commandroid-line app, `com.commandroid_line`
+(targetSdk 28, sideload only), with or without a bundled bootstrap. For the
+agent CLI checks, see also
 [AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md). The design under test is
 described in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -22,8 +24,8 @@ Before testing, fill in this header. Copy it into the results file (section 9).
 | Security patch level | |
 | Memory page size (`adb shell getconf PAGE_SIZE`) | |
 | Primary ABI (`adb shell getprop ro.product.cpu.abi`) | |
-| App commit (`git rev-parse HEAD`) and flavors installed | |
-| Bootstrap bundled in compat? (path / sha256 of `bootstrap-aarch64.zip`, or "none") | |
+| App commit (`git rev-parse HEAD`) | |
+| Bootstrap bundled? (path / sha256 of `bootstrap-aarch64.zip`, or "none") | |
 | Samsung Keyboard version and language(s) | |
 | Gboard version and language(s) | |
 | Hardware keyboard (model, Bluetooth / USB / DeX) | |
@@ -46,38 +48,40 @@ JNI library and of the bootstrap binaries has not been checked
 This works from Windows as well. Install the Android SDK platform-tools, run
 `adb` from PowerShell or cmd, and use `gradlew.bat` instead of `./gradlew`.
 
-## 3. Build and install both flavors
+## 3. Build and install the APK
 
 Build on the computer ([BUILD.md](BUILD.md)):
 
 ```sh
-./gradlew :app:assembleCompatDebug :app:assembleSystemDebug
-# For a Termux-compatible compat build, add -PcommandroidBootstrapDir=<dir>
+./gradlew :app:assembleDebug
+# For Termux-compatible execution, add -PcommandroidBootstrapDir=<dir>
 # (a source-built bootstrap only; see BOOTSTRAP-BUILD.md).
 ```
 
-Install both flavors. They have different application IDs and install side by
-side:
+Install the one APK:
 
 ```sh
-adb install -r app/build/outputs/apk/compat/debug/commandroid-line_compat_debug_arm64-v8a.apk
-adb install -r app/build/outputs/apk/system/debug/commandroid-line_system_debug_arm64-v8a.apk
+adb install -r app/build/outputs/apk/debug/commandroid-line_debug_arm64-v8a.apk
 adb shell pm list packages | grep commandroid_line
 adb shell dumpsys package com.commandroid_line | grep -E 'targetSdk|versionName'
 ```
 
-With `TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS=0` only the `_universal.apk` files are
-produced. Install those instead.
+With `TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS=0` only
+`commandroid-line_debug_universal.apk` is produced. Install that instead. It is
+also the only APK in the CI artifact `commandroid-line-debug-<sha>`.
+
+If an older two-flavor build left `com.commandroid_line.system` installed, it is
+no longer built or tested; record whether it is present and uninstall it
+(`adb uninstall com.commandroid_line.system`) only if it holds no data you need.
 
 Record these install observations:
 
 - Any install-time warning, such as Play Protect's "built for an older version of
-  Android" for compat (targetSdk 28).
+  Android" (the app targets SDK 28).
 - `INSTALL_FAILED_*` errors. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means the
   installed copy was signed with another debug key. Do not uninstall an app that
   holds data you need just to get past it.
-- Whether both launchers appear: "commandroid-line" and "commandroid-line (system
-  shell)".
+- Whether the "commandroid-line" launcher appears, and only once.
 
 ## 4. Instrumented suite on the phone
 
@@ -85,12 +89,12 @@ Run the same instrumented suite that CI runs on emulators, with the phone
 attached:
 
 ```sh
-./gradlew :app:connectedCompatDebugAndroidTest :app:connectedSystemDebugAndroidTest
+./gradlew :app:connectedDebugAndroidTest
 ```
 
 Reports are written to `app/build/reports/androidTests/connected/` and results to
-`app/build/outputs/androidTest-results/`. Record the pass, fail and skip counts
-for each flavor. Keep the HTML report as evidence (section 8).
+`app/build/outputs/androidTest-results/`. Record the pass, fail and skip counts.
+Keep the HTML report as evidence (section 8).
 
 The Gradle connected tasks install their own app and test APKs. By default they
 uninstall them again after the run, which also deletes that app's data (an
@@ -129,7 +133,7 @@ adb shell settings get global settings_enable_monitor_phantom_procs
 adb shell "/system/bin/dumpsys activity settings | grep -i phantom"
 ```
 
-Functional check: in the compat terminal, run
+Functional check: in the app's terminal, run
 `for i in $(seq 40); do sleep 900 & done`. Leave the app in the background for 5
 minutes, return, and run `jobs | wc -l`. The count should still be 40. Also run
 `adb logcat -d -b main,system | grep -i phantom` and record any kill lines.
@@ -183,7 +187,7 @@ in **P** (pass), **F** (fail, with a note), **S** (skipped, with the reason) or
 | H2 | Ctrl-C while `sleep 100` runs | `sleep` is interrupted. The shell prompt returns and the same shell keeps running (`echo $$` unchanged). | | |
 | H3 | Ctrl-D at an empty prompt in a nested `sh` | The nested shell exits. The outer shell survives. | | |
 | H4 | Esc in `vi` | Leaves insert mode. | | |
-| H5 | Tab completion in bash (compat with bootstrap) | Completes. | | |
+| H5 | Tab completion in bash (bootstrap installed) | Completes. | | |
 | H6 | Alt combinations (Alt-b / Alt-f in bash) | Word movement works. | | |
 | H7 | Enter in TERMINAL and in AUTO (direct) | Submits once. | | |
 | H8 | Enter in TEXT with a non-empty draft | Inserts a newline locally. Nothing is sent. | | |
@@ -217,8 +221,8 @@ in **P** (pass), **F** (fail, with a note), **S** (skipped, with the reason) or
 
 ## 7. Agent CLI rows
 
-Run [AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md) in the compat flavor with a
-bundled bootstrap, once under each IME. Record its summary output there and
+Run [AGENT-CLI-ACCEPTANCE.md](AGENT-CLI-ACCEPTANCE.md) in an APK with a bundled
+bootstrap, once under each IME. Record its summary output there and
 reference it here.
 
 ## 8. Evidence without leaking secrets
@@ -230,12 +234,12 @@ reference it here.
 
   ```sh
   adb logcat -c
-  adb logcat -v time --pid="$(adb shell pidof -s com.commandroid_line)" > compat.log
+  adb logcat -v time --pid="$(adb shell pidof -s com.commandroid_line)" > app.log
   adb logcat -v time -b main,system -s ActivityManager:I > am.log   # process kills, phantom limits
   ```
 
   Before sharing a log, search it for any fixture or credential text you typed
-  (`grep -n -i 'fixture\|key\|token' compat.log`).
+  (`grep -n -i 'fixture\|key\|token' app.log`).
 - Screen recordings: use the One UI screen recorder, or run
   `adb shell screenrecord --time-limit 180 /sdcard/Movies/cl-K5.mp4` and then
   `adb pull`. Screen recordings show everything typed on screen. Use fixture text
@@ -252,13 +256,12 @@ blank or mark them `not run` rather than guessing.
 ```text
 commandroid-line device run
 Device:        Galaxy S26 Ultra, Android __ / One UI __, build __, page size __
-App commit:    ________   Flavors: compat [bootstrap: none|sha256 __], system
+App commit:    ________   Bootstrap: none|sha256 __
 IMEs:          Samsung Keyboard __, Gboard __     HW keyboard: __
 Phantom/background settings used: __
 
 Instrumented (section 4):
-  connectedCompatDebugAndroidTest: __ passed / __ failed / __ skipped
-  connectedSystemDebugAndroidTest: __ passed / __ failed / __ skipped
+  connectedDebugAndroidTest: __ passed / __ failed / __ skipped
 
 Manual matrix (P/F/S/N/A):
   K1..K17  Samsung: __________________   Gboard: __________________

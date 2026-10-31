@@ -1,7 +1,7 @@
 # Building a genuine commandroid-line bootstrap
 
-The `compat` product flavor targets SDK 28, the route Termux uses so binaries in
-the app data directory can execute. Its application ID is `com.commandroid_line`
+commandroid-line targets SDK 28, the route Termux uses so binaries in the app
+data directory can execute. Its application ID is `com.commandroid_line`
 (Android IDs cannot contain hyphens, so the requested `com.commandroid-line` is
 spelled with an underscore). Its native package prefix is
 `/data/data/com.commandroid_line/files/usr`, and its home directory is
@@ -14,10 +14,12 @@ identity. They must not be reused, byte-patched, or installed from official
 Termux repositories in commandroid-line. Every package is rebuilt from source
 for this prefix.
 
-**Status: nothing has been built yet.** This repository contains source
-preparation, static validation tooling and a CI workflow. The CI workflow has
-not run. No `bootstrap-<arch>.zip` exists for this prefix, and nothing has been
-executed on an Android device. The acceptance targets are Claude Code, Codex
+**Status: no bootstrap has been built successfully yet.** This repository
+contains source preparation, static validation tooling and a CI workflow. The
+first four CI builds stopped before producing an archive (the fixes they led to
+are noted under "Source preparation"), and CI run #5 was in progress when this
+was written. No `bootstrap-<arch>.zip` exists for this prefix, and nothing has
+been executed on an Android device. The acceptance targets are Claude Code, Codex
 and OpenCode. They need at least Node.js (`nodejs-lts`), git and a working
 bash/coreutils/apt bootstrap. None of these has been shown to work yet.
 

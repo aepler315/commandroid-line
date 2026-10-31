@@ -15,7 +15,7 @@ UTF-8. Two additions sit on top:
   Unsupported commands are refused and your draft is kept.
 
 The main acceptance targets are the agent CLIs **Claude Code, Codex and OpenCode**,
-run interactively in the compat runtime. They are **not yet verified** (see
+run interactively with a bundled bootstrap. They are **not yet verified** (see
 status below).
 
 ## Using the input panel
@@ -31,19 +31,26 @@ status below).
 - Drafts live only in memory. They are cleared when you switch sessions and lost
   when the activity is recreated. NeoTerm never logs input text.
 
-## Two runtime flavors
+## Runtime
 
-| Flavor | Application ID | targetSdk | Runtime |
-| --- | --- | --- | --- |
-| `compat` | `com.commandroid_line` | 28 | Termux-compatible. It installs a bootstrap bundled in the APK, built from source for `/data/data/com.commandroid_line/files/usr` (bash, apt, Node.js, git), and runs `$PREFIX/bin/login`. Without a bundled bootstrap it uses `/system/bin/sh` and says so. Sideload only. |
-| `system` | `com.commandroid_line.system` | 34 | Android's `/system/bin/sh` only. No Linux packages. |
+commandroid-line is one app: application ID `com.commandroid_line`, targetSdk 28,
+sideload only. The owner has decided it will never be published on Google Play.
 
-compat targets SDK 28 because Android denies `execve()` of files in an app's own
+- **With a bundled bootstrap** (Termux-compatible execution): on first launch it
+  installs a bootstrap bundled in the APK, built from source for
+  `/data/data/com.commandroid_line/files/usr` (bash, apt, Node.js, git), and runs
+  `$PREFIX/bin/login`.
+- **Without one**: it uses Android's `/system/bin/sh` and says so in its runtime
+  notice. No Linux packages are available then.
+
+The app targets SDK 28 because Android denies `execve()` of files in an app's own
 data directory from targetSdk 29 onward. The ID uses an underscore because hyphens
 are not legal in Android application IDs. Official `com.termux` bootstraps or
 packages are never bundled or installed, because their binaries are built for
-another app's prefix. The two flavors install side by side. See
-[ADR-0001](docs/neoterm/ADR-0001-one-pty-terminal.md).
+another app's prefix. See [ADR-0001](docs/neoterm/ADR-0001-one-pty-terminal.md).
+Until `b473b51` there was also a targetSdk 34 `system` build
+(`com.commandroid_line.system`, `/system/bin/sh` only); it was removed because
+the app will never be published on Google Play.
 
 ## Building
 
@@ -54,38 +61,37 @@ Full details are in [BUILD.md](docs/neoterm/BUILD.md).
 export JAVA_HOME=/path/to/jdk-17 ANDROID_HOME=/path/to/android-sdk
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 
-# system flavor (no bootstrap needed)
-./gradlew :app:assembleSystemDebug
+# without a bootstrap (falls back to /system/bin/sh)
+./gradlew :app:assembleDebug
 
-# compat flavor without a bootstrap (falls back to /system/bin/sh)
-./gradlew :app:assembleCompatDebug
-
-# compat flavor with a source-built bootstrap for com.commandroid_line
-./gradlew :app:assembleCompatDebug -PcommandroidBootstrapDir=/path/to/dir-with-bootstrap-aarch64.zip
+# with a source-built bootstrap for com.commandroid_line
+./gradlew :app:assembleDebug -PcommandroidBootstrapDir=/path/to/dir-with-bootstrap-aarch64.zip
 ```
 
 The bootstrap must be built from source with
 [BOOTSTRAP-BUILD.md](docs/neoterm/BOOTSTRAP-BUILD.md). The APKs are written to
-`app/build/outputs/apk/<flavor>/debug/commandroid-line_<flavor>_debug_<abi|universal>.apk`.
+`app/build/outputs/apk/debug/commandroid-line_debug_<abi|universal>.apk`. CI
+uploads the universal APK on its own as the artifact
+`commandroid-line-debug-<sha>`, so a download holds exactly one APK to install.
 
 ## Status
 
-Verification state at commit `85bb558`:
+Verification state at commit `b473b51`:
 
 | Area | State |
 | --- | --- |
-| JVM suites (`:neoterm-input:test`, `:cmd-translator:test`, `:terminal-emulator:testDebugUnitTest`, `:app:testCompatDebugUnitTest`, `:app:testSystemDebugUnitTest`) | Pass locally (neoterm-input 28, cmd-translator 44, terminal-emulator 145, app 53 per flavor) |
-| Lint and debug/androidTest APK builds, both flavors | Pass locally |
-| Instrumented suite (`:app:connectedCompatDebugAndroidTest`, `:app:connectedSystemDebugAndroidTest`) on CI emulators, API 34 and API 36 (Android 16, as on the Galaxy S26 Ultra) | API 34 passes in both flavors. API 36 first results pending ([TESTING.md](docs/neoterm/TESTING.md)). The compat-prefix test is skipped (no bootstrap in CI). It cannot run in the development container (no KVM). |
-| Source-built compat bootstrap | Not built yet ([BOOTSTRAP-BUILD.md](docs/neoterm/BOOTSTRAP-BUILD.md)) |
-| Galaxy S26 Ultra device matrix ([DEVICE-TEST-PROTOCOL.md](docs/neoterm/DEVICE-TEST-PROTOCOL.md)) | Not run yet |
-| Claude Code, Codex, OpenCode in the compat runtime ([AGENT-CLI-ACCEPTANCE.md](docs/neoterm/AGENT-CLI-ACCEPTANCE.md)) | Not verified yet |
+| JVM suites (`:neoterm-input:test`, `:cmd-translator:test`, `:terminal-emulator:testDebugUnitTest`, `:app:testDebugUnitTest`) and the bootstrap tool tests | Pass locally (neoterm-input 28, cmd-translator 44, terminal-emulator 145, app 77, bootstrap tool 44) |
+| `:app:lintDebug`, `:app:assembleDebug`, `:app:assembleDebugAndroidTest` | Pass locally |
+| Instrumented suite (`:app:connectedDebugAndroidTest`) on CI emulators, API 34 and API 36 (Android 16, as on the Galaxy S26 Ultra) | Pending CI for `b473b51`. The earlier two-flavor build passed on API 34 at `4a2c9c8` ([TESTING.md](docs/neoterm/TESTING.md)). The bootstrap-prefix test is skipped (no bootstrap in CI). It cannot run in the development container (no KVM). |
+| Source-built bootstrap | Not built successfully yet. CI run #5 was in progress when this was written ([BOOTSTRAP-BUILD.md](docs/neoterm/BOOTSTRAP-BUILD.md)) |
+| Galaxy S26 Ultra device matrix ([DEVICE-TEST-PROTOCOL.md](docs/neoterm/DEVICE-TEST-PROTOCOL.md)) | Not run yet. No device testing has been done. |
+| Claude Code, Codex, OpenCode with a bundled bootstrap ([AGENT-CLI-ACCEPTANCE.md](docs/neoterm/AGENT-CLI-ACCEPTANCE.md)) | Not verified yet |
 | Real Samsung Keyboard / Gboard behavior | Not run yet |
-| Release signing, store distribution | Not configured. Debug builds use the local debug key. |
+| Release signing | Not configured. Debug builds use the local debug key. No store distribution is planned (sideload only). |
 
 Earlier device results (API 28 emulator coexistence, NeoTerm `com.neoterm`
 builds) are historical. They predate PR #2 and this identity and do not apply to
-the current APKs: [STANDALONE-VERIFICATION.md](docs/neoterm/STANDALONE-VERIFICATION.md),
+the current APK: [STANDALONE-VERIFICATION.md](docs/neoterm/STANDALONE-VERIFICATION.md),
 [ENTER-AND-APT.md](docs/neoterm/ENTER-AND-APT.md),
 [HARDWARE-KEYBOARD.md](docs/neoterm/HARDWARE-KEYBOARD.md),
 [VERIFICATION.md](docs/neoterm/VERIFICATION.md),

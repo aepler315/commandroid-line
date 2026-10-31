@@ -12,23 +12,22 @@ the one-stack resolution in `85bb558`.
 The JNI PTY (`terminal-emulator`), `TerminalEmulator`, `TerminalView`,
 `TermuxActivity`, `TermuxService`, the session client, settings and
 `termux-shared` are kept, with narrow, marked changes. The Java, resource and JNI
-namespaces stay `com.termux`. The compat flavor's `BootstrapInstaller` is
+namespaces stay `com.termux`. `com.termux.app.BootstrapInstaller` is
 upstream v0.118.3 `TermuxInstaller` extraction logic, changed in two ways: it
 reads the archive from APK assets, and it refuses entries that would escape the
 staging prefix.
 
 ## What differs from upstream
 
-- Application IDs are `com.commandroid_line` (compat) and
-  `com.commandroid_line.system` (system). There is no shared UID.
-  `TermuxConstants.TERMUX_PACKAGE_NAME` comes from the termux-shared flavor's
-  `BuildConfig`.
+- The application ID is `com.commandroid_line` (targetSdk 28, sideload only).
+  There is no shared UID. `TermuxConstants.TERMUX_PACKAGE_NAME` comes from
+  termux-shared's `BuildConfig`, set in its `defaultConfig`.
 - Debug builds use Android's locally generated key, and release signing is not
   configured.
 - No upstream (`com.termux`-prefix) bootstrap is embedded, downloaded or
-  installed. compat installs only a bootstrap built from source for its own
-  prefix ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)). system runs
-  `/system/bin/sh` only.
+  installed. The app installs only a bootstrap built from source for its own
+  prefix and bundled in the APK ([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)).
+  Without one it runs `/system/bin/sh`.
 - NeoTerm staged input (`:neoterm-input`, `com.neoterm.input`) and the Commandroid
   translator (`:cmd-translator`) are new code
   ([ARCHITECTURE.md](ARCHITECTURE.md)).

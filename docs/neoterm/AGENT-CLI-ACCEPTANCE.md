@@ -1,20 +1,20 @@
 # Agent CLI acceptance: Claude Code, Codex, OpenCode
 
 **Status: not verified.** No agent CLI has been installed or run in commandroid-line
-yet. A source-built compat bootstrap does not exist yet
-([BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)), and no device run has happened
+yet. No source-built bootstrap has been built successfully yet (CI run #5 was
+in progress; [BOOTSTRAP-BUILD.md](BOOTSTRAP-BUILD.md)), and no device run has happened
 ([DEVICE-TEST-PROTOCOL.md](DEVICE-TEST-PROTOCOL.md)). The install commands below are
 **expected, to be confirmed**. Nobody has run them in this runtime.
 
 The owner set these three CLIs as central acceptance targets. Each must run
-interactively in the **compat** runtime (`com.commandroid_line`), inside the PTY
-terminal ([ARCHITECTURE.md](ARCHITECTURE.md)). The system flavor cannot run them:
-it has no Node.js, and at targetSdk 34 it cannot execute binaries from its own
-data directory.
+interactively in commandroid-line (`com.commandroid_line`) with a bundled
+bootstrap installed, inside the PTY terminal ([ARCHITECTURE.md](ARCHITECTURE.md)).
+The `/system/bin/sh` fallback of an APK without a bootstrap cannot run them: it
+has no Node.js or git.
 
 ## Prerequisites
 
-1. A compat APK built with a bootstrap compiled from source for
+1. An APK built with a bootstrap compiled from source for
    `/data/data/com.commandroid_line/files/usr`, passed with
    `-PcommandroidBootstrapDir=<dir>`. The bootstrap must include Node.js
    (`nodejs-lts`, which provides `npm`) and `git` on top of the base set.
@@ -51,11 +51,11 @@ after it has been run.
 ## Automated pre-check
 
 Copy `tools/acceptance/agent-cli-check.sh` into the app's home directory and run
-it in a compat terminal session. The app has no access to `/sdcard` until storage
+it in an app terminal session. The app has no access to `/sdcard` until storage
 permission is granted, so use one of these routes (expected, to be confirmed on
 the device):
 
-- **Download it in the app terminal.** The compat bootstrap includes `curl` (a
+- **Download it in the app terminal.** The bootstrap includes `curl` (a
   dependency of `termux-tools`). In TERMINAL mode, run
   `curl -fLO https://raw.githubusercontent.com/aepler315/commandroid-line/main/tools/acceptance/agent-cli-check.sh`
   in `~`. Replace `main` with the commit under test.
@@ -79,16 +79,17 @@ sh agent-cli-check.sh --resize       # rotate or resize when asked
 
 The script is POSIX sh and non-destructive. It checks that stdin and stdout are a
 tty, the window size (`stty size`), ISIG, `intr = ^C` and IUTF8, `TERM`,
-`COLORTERM`, a UTF-8 locale, the compat prefix identity, `node` (18 or newer),
+`COLORTERM`, a UTF-8 locale, the prefix identity
+(`/data/data/com.commandroid_line/files/usr` with `bin/bash`), `node` (18 or newer),
 `npm` and `git`, and `claude`/`codex`/`opencode --version`. A version check passes
 only when the command exits 0 and prints a version: `v<major>.<minor>.<patch>`
 for `node`, `<major>.<minor>.<patch>` for `npm`, `git version <x.y.z>` for `git`,
 and a free-standing `<x.y.z>` for the agent CLIs. It treats either
 `COMMANDROID_RUNTIME=system-shell` or `NEOTERM_RUNTIME=android-system` as the
-system-shell fallback. `--interrupt` passes only when the foreground `sleep` was
-killed by SIGINT (exit status 130); a SIGINT that reached only the script is a
-FAIL. It never prints the
-environment, credentials or API keys. It prints one PASS, FAIL or SKIP line per
+system-shell fallback, and fails a `PREFIX` under the removed
+`com.commandroid_line.system` app. `--interrupt` passes only when the foreground
+`sleep` was killed by SIGINT (exit status 130); a SIGINT that reached only the
+script is a FAIL. It never prints the environment, credentials or API keys. It prints one PASS, FAIL or SKIP line per
 check, then a summary, and exits with 1 if anything failed. A SKIP for a CLI means
 it is not installed, which does not meet acceptance.
 
@@ -102,7 +103,7 @@ Bionic `CANNOT LINK EXECUTABLE` message, or exit 0 without a version. It has
 
 ## Acceptance criteria
 
-Run every row for each CLI in the compat runtime. Use Samsung Keyboard for one
+Run every row for each CLI with the bundled bootstrap installed. Use Samsung Keyboard for one
 full pass and Gboard for another. Record P/F/S plus notes.
 
 | # | Check | Pass when | Claude Code | Codex | OpenCode |
