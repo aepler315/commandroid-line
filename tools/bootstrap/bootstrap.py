@@ -43,6 +43,23 @@ FOREIGN_PREFIX = re.compile(rb"(?:/data/data|/data/user/[0-9]+)/(com\.(?:termux|
 PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*")
 # Executables that must exist when an extra package is requested.
 EXTRA_EXECUTABLES = {"nodejs-lts": ("bin/node",), "git": ("bin/git",)}
+# Inserted into build-bootstraps.sh build_package() (see prepared_file).
+SUBPACKAGE_PARENT_SNIPPET = """\tlocal package_name="$2"
+
+\t# commandroid-line: build a subpackage-only name (bzip2) through its parent (libbz2).
+\tlocal package_dir parent_dir
+\tif ! compgen -G "$TERMUX_PACKAGES_DIRECTORY/*packages/$package_name/build.sh" >/dev/null; then
+\t\tfor package_dir in packages root-packages x11-packages; do
+\t\t\tparent_dir="$(find "$TERMUX_PACKAGES_DIRECTORY/$package_dir" -mindepth 2 -maxdepth 2 \\
+\t\t\t\t-name "$package_name.subpackage.sh" -printf '%h\\n' 2>/dev/null | head -n 1)"
+\t\t\tif [ -n "$parent_dir" ]; then
+\t\t\t\techo "[*] '$package_name' is a subpackage of '$(basename "$parent_dir")'; building that"
+\t\t\t\tpackage_name="$(basename "$parent_dir")"
+\t\t\t\tbreak
+\t\t\tfi
+\t\tdone
+\tfi
+"""
 RUNTIME_DIRS = ("bin/", "lib/", "libexec/", "etc/", "var/lib/dpkg/")
 
 
@@ -157,6 +174,13 @@ def prepared_file(source, relative, config):
                                 "\nset -e\n\nexport TERMUX_PACKAGE_MANAGER=apt\n\nexport TERMUX_SCRIPTDIR")
         original = replace_once(original, 'add_termux_bootstrap_second_stage_files "$package_arch"',
                                 'add_termux_bootstrap_second_stage_files "$TERMUX_ARCH"')
+        # The default package list names bzip2, which is only a subpackage of libbz2. This
+        # revision's build-package.sh then fails with "No package bzip2 found in any of the
+        # enabled repositories", which build_package's "No build.sh script" exception does not
+        # match; upstream's usual download-based bootstrap flow never reaches it. Build such a
+        # name through the package whose *.subpackage.sh produces it; build-package.sh skips a
+        # parent that an earlier dependency build already produced.
+        original = replace_once(original, '\tlocal package_name="$2"\n', SUBPACKAGE_PARENT_SNIPPET)
     return original
 
 

@@ -321,5 +321,39 @@ class ArtifactValidationTest(unittest.TestCase):
         self.validate(include_extra=False)
 
 
+
+
+class SubpackageParentTest(unittest.TestCase):
+    """The snippet inserted into build_package() maps subpackage-only names to their parent."""
+
+    def resolve(self, name, layout):
+        import subprocess
+        with tempfile.TemporaryDirectory(prefix="commandroid-line-subpkg-") as root:
+            for relative in layout:
+                path = Path(root) / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("")
+            script = ("build_package() {\n\tlocal TERMUX_ARCH=\"$1\"\n" + BOOTSTRAP.SUBPACKAGE_PARENT_SNIPPET +
+                      "\tprintf 'RESOLVED=%s\\n' \"$package_name\"\n}\nbuild_package aarch64 \"$1\"\n")
+            out = subprocess.run(["bash", "-c", script, "test", name], check=True, text=True, capture_output=True,
+                                 env={"PATH": "/usr/bin:/bin", "TERMUX_PACKAGES_DIRECTORY": root}).stdout
+            return [line[len("RESOLVED="):] for line in out.splitlines() if line.startswith("RESOLVED=")][-1]
+
+    def test_subpackage_builds_through_parent(self):
+        layout = ["packages/libbz2/build.sh", "packages/libbz2/bzip2.subpackage.sh"]
+        self.assertEqual(self.resolve("bzip2", layout), "libbz2")
+
+    def test_real_package_is_unchanged(self):
+        layout = ["packages/bash/build.sh", "packages/libbz2/build.sh", "packages/libbz2/bzip2.subpackage.sh"]
+        self.assertEqual(self.resolve("bash", layout), "bash")
+        self.assertEqual(self.resolve("libbz2", layout), "libbz2")
+
+    def test_unknown_name_is_left_for_build_package_to_report(self):
+        self.assertEqual(self.resolve("no-such-package", ["packages/bash/build.sh"]), "no-such-package")
+
+    def test_snippet_is_applied_once_to_build_package(self):
+        self.assertEqual(BOOTSTRAP.SUBPACKAGE_PARENT_SNIPPET.count('local package_name="$2"'), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

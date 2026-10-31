@@ -93,6 +93,14 @@ Preparation makes these narrowly scoped source changes:
   `TERMUX_ARCH` instead of the undefined `package_arch` to second-stage
   generation. Otherwise the package-manager and architecture substitutions in
   the second stage can be empty.
+- `scripts/build-bootstraps.sh` also builds a subpackage-only name through its
+  parent. The default list names `bzip2`, which exists only as
+  `packages/libbz2/bzip2.subpackage.sh`. At this revision, `build-package.sh`
+  rejects such a name with "No package bzip2 found in any of the enabled
+  repositories", and `build_package` only tolerates the older "No build.sh
+  script" message. Upstream's usual download-based bootstrap flow never reaches
+  this path. The fourth CI build compiled apt's whole closure and bash, then
+  stopped here.
 - Checksum re-pins listed in `config.json` `checksum_repins`. Some hosts
   (Codeberg, GitLab) generate `/archive/` tarballs on the fly. When one is
   regenerated, its bytes and SHA-256 change even though its contents do not,
