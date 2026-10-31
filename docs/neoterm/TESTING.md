@@ -131,8 +131,14 @@ CI results (emulators, both flavors, merged head `e606a3a`):
   `InteractiveReadinessTest.rawModeDeliversAnArrowKeyByteExact` and
   `bracketedPasteWrapsAMultiLineTransmitAndAReaderReceivesItIntact`. Android 11's
   toybox `stty` rejected the combined raw-mode invocation and applied nothing.
-  Commit `df69d25` applies the options one at a time. It is compiled only; its CI
-  result is **pending**.
+  Applied one at a time (`df69d25`), it refused every option that would change
+  the mode (`-icanon`, `-echo`, `-isig`, `-icrnl`) and accepted only options
+  already in effect. Interactive CLIs set raw mode themselves through termios.
+  The app's job is to deliver key and paste bytes through the PTY unchanged. So
+  since `494cec8`, where the platform `stty` cannot leave canonical mode
+  (below API 34), these two tests end the input line and still check the bytes
+  exactly. From API 34 raw mode is required. The CI result for `494cec8` and
+  later is **pending**.
 
 ## Behavior matrix
 
