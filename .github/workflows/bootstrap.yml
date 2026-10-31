@@ -108,6 +108,8 @@ jobs:
 
       - name: Verify artifact and record checksum
         run: |
+          # Without pipefail a failing verify-artifact is masked by tee.
+          set -euo pipefail
           python3 tools/bootstrap/bootstrap.py verify-artifact "$SRC/bootstrap-$ARCH.zip" --arch "$ARCH" \
             | tee "$OUT/verify-$ARCH.json"
           cp "$SRC/bootstrap-$ARCH.zip" "$OUT/"

@@ -90,6 +90,18 @@ Preparation makes these narrowly scoped source changes:
   randomly chosen official Termux mirror into `sources.list`. That would undo
   the disabled sources on first use. Without mirror files, `pkg` fails instead.
   `termux-change-repo` likewise has nothing to select.
+  The same file's `termux_step_pre_configure` also exports `TERMUX_APP_PACKAGE`,
+  `TERMUX_BASE_DIR`, `TERMUX_CACHE_DIR`, `TERMUX_PREFIX` and
+  `TERMUX_ANDROID_HOME` from the build properties. termux-tools' `configure.ac`
+  reads its paths from those environment variables, which termux-packages never
+  exports. Without them it substitutes `/data/data/com.termux` into `login`,
+  `pkg`, `chsh`, `motd.sh`, `termux-reset`, the package's `preinst` and about
+  ten other scripts. Bootstrap run 41215503863 (head `c384c9b`) shipped such
+  scripts for both architectures. The step also rewrites the four app component
+  names in `scripts/*.in` from `@TERMUX_APP_PACKAGE@/@TERMUX_APP_PACKAGE@.app.X`
+  to `@TERMUX_APP_PACKAGE@/com.termux.app.X`: the manifest's classes stay in the
+  `com.termux` namespace. It stops the build if the pinned source does not have
+  exactly four.
 - `scripts/build-bootstraps.sh`: fix two omissions in this revision's
   local-source wrapper. Export `TERMUX_PACKAGE_MANAGER=apt` explicitly, and pass
   `TERMUX_ARCH` instead of the undefined `package_arch` to second-stage
@@ -379,9 +391,15 @@ It also rejects:
 
 - the private prefix of `com.termux` or `com.neoterm` (under `/data/data/` or
   `/data/user/<n>/`) in runtime files (`bin/`, `lib/`, `libexec/`, `etc/`,
-  `var/lib/dpkg/`) and in symlink targets
+  `var/lib/dpkg/`) and in symlink targets. The one exception is an exact
+  upstream comment line in `bin/termux-exec-ld-preload-lib`
+  (`FOREIGN_PREFIX_COMMENTS`)
+- an app component named `com.commandroid_line/com.commandroid_line.app.*` in a
+  runtime file; the classes are in `com.termux.app`
 - any shipped `etc/termux/mirrors` definition or `chosen_mirrors` link
-- an archive in which a configured extra package or its executable is missing
+- an archive in which a configured extra package or its executable is missing.
+  An executable may be a SYMLINKS.txt entry (git's `bin/git` links to
+  `libexec/git-core/git`) if it resolves to an ELF member of the archive
 
 Use `--without-extra-packages` only for an archive built that way. The
 validator prints the archive's SHA-256 only after these static checks pass. It

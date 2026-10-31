@@ -3,6 +3,34 @@
 Entries below "One PTY terminal" predate it and describe the earlier NeoTerm
 (`com.neoterm`) and PR #2 builds. Their test counts and task names are historical.
 
+## Bootstrap identity in termux-tools; verify-artifact enforced (2026-10-31)
+
+- Bootstrap run 41215503863 built both architectures, but the archives are not
+  usable. termux-tools' `configure` falls back to `com.termux` paths unless
+  `TERMUX_APP_PACKAGE`, `TERMUX_PREFIX` and the related variables are exported.
+  So `login`, `pkg`, `chsh`, `motd.sh` and 12 other runtime files named
+  `/data/data/com.termux/files/usr`. `bootstrap.py` now exports them in
+  termux-tools' `termux_step_pre_configure`. It also points the four app
+  component names at `com.termux.app.*` (the Java namespace), not
+  `com.commandroid_line.app.*`.
+- The build job's verify step ran `verify-artifact | tee` without `pipefail`, so
+  its failure was masked and the job reported success. That step now uses
+  `set -euo pipefail`, and `bootstrap-apk.yml` caught the failure.
+- `verify-artifact` accepts an extra executable installed as a symlink (git's
+  `bin/git`). It allows one exact upstream comment in
+  `bin/termux-exec-ld-preload-lib`, and rejects app components in the
+  application-ID namespace. Both archives from that run pass every check once
+  termux-tools' own files are corrected, so a rebuild is expected to pass.
+- Bootstrap run 41235528888 (head `ba7cf36`) passed both builds and every verify
+  step, and built the phone APK. On API 34 and API 36 emulators the prefix
+  installed and ran bash 5.2.37, node v22.14.0, npm 10.9.2 and git 2.49.0, and
+  40 of 41 connected tests passed, including the prefix test (bash on a tty,
+  SIGINT to a bash child, node raw mode and window size). The one failure was the
+  bracketed-paste test. With a bootstrap the session shell is bash, whose
+  readline re-enables bracketed paste at its next prompt, so the test's final
+  "left bracketed paste mode" check raced that prompt. The reader now stays in
+  the foreground (`read`) until its own `ESC[?2004l` has been checked.
+
 ## One sideload app; system flavor removed (2026-10-31)
 
 - The owner decided commandroid-line will never be published on Google Play, so
