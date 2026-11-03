@@ -317,6 +317,45 @@ class ArtifactValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "compiled ELF executable at bin/git"):
             self.validate()
 
+    def test_accepts_extra_executable_installed_as_symlink(self):
+        # git installs bin/git as a symlink into libexec/git-core.
+        self.files["libexec/git-core/git"] = self.files.pop("bin/git")
+        self.files["SYMLINKS.txt"] += "../libexec/git-core/git←./bin/git\n".encode()
+        self.validate()
+
+    def test_rejects_extra_executable_symlink_to_missing_member(self):
+        del self.files["bin/git"]
+        self.files["SYMLINKS.txt"] += "../libexec/git-core/git←./bin/git\n".encode()
+        with self.assertRaisesRegex(ValueError, "git lacks bin/git"):
+            self.validate()
+
+    def test_rejects_extra_executable_symlink_to_script(self):
+        del self.files["bin/git"]
+        self.files["libexec/git-core/git"] = b"#!/system/bin/sh\n"
+        self.files["SYMLINKS.txt"] += "../libexec/git-core/git←./bin/git\n".encode()
+        with self.assertRaisesRegex(ValueError, "compiled ELF executable at bin/git"):
+            self.validate()
+
+    def test_rejects_official_prefix_in_termux_tools_script(self):
+        # What termux-tools' configure produced before its identity variables were exported.
+        self.files["bin/login"] = b"#!/bin/sh\ncat /data/data/com.termux/files/usr/etc/motd\n"
+        with self.assertRaisesRegex(ValueError, "Foreign private prefix com.termux in bin/login"):
+            self.validate()
+
+    def test_accepts_known_upstream_comment_only(self):
+        name = "bin/termux-exec-ld-preload-lib"
+        (comment,) = BOOTSTRAP.FOREIGN_PREFIX_COMMENTS[name]
+        self.files[name] = b"#!/bin/sh\n" + comment + b"    unset LD_PRELOAD\n"
+        self.validate()
+        self.files[name] += b"cp lib.so /data/data/com.termux/files/usr/lib\n"
+        with self.assertRaisesRegex(ValueError, f"Foreign private prefix com.termux in {name}"):
+            self.validate()
+
+    def test_rejects_component_in_application_id_namespace(self):
+        self.files["bin/termux-open"] = b'am broadcast -n "com.commandroid_line/com.commandroid_line.app.TermuxOpenReceiver"\n'
+        with self.assertRaisesRegex(ValueError, "class namespace in bin/termux-open"):
+            self.validate()
+
     def test_default_set_archive_without_extra_packages(self):
         del self.files["bin/node"], self.files["bin/git"]
         self.files["var/lib/dpkg/status"] = b"Package: bash\nStatus: install ok installed\n\n"
@@ -355,6 +394,69 @@ class SubpackageParentTest(unittest.TestCase):
 
     def test_snippet_is_applied_once_to_build_package(self):
         self.assertEqual(BOOTSTRAP.SUBPACKAGE_PARENT_SNIPPET.count('local package_name="$2"'), 1)
+
+
+
+class TermuxToolsPreConfigureTest(unittest.TestCase):
+    """The termux_step_pre_configure that replaces termux-tools' exports the app identity."""
+
+    COMPONENT = '-n "@TERMUX_APP_PACKAGE@/@TERMUX_APP_PACKAGE@.app.TermuxService"\n'
+
+    def run_step(self, components):
+        with tempfile.TemporaryDirectory(prefix="commandroid-line-termux-tools-") as root:
+            scripts = Path(root) / "scripts"
+            scripts.mkdir()
+            (scripts / "login.in").write_text("cat @TERMUX_PREFIX@/etc/motd\n")
+            for index in range(components):
+                (scripts / f"tool{index}.in").write_text(self.COMPONENT + 'am "@TERMUX_APP_PACKAGE@.app.reload_style"\n')
+            script = ("termux_error_exit() { echo \"ERROR: $*\"; exit 1; }\nautoreconf() { :; }\n"
+                      + BOOTSTRAP.TERMUX_TOOLS_PRE_CONFIGURE + "\ntermux_step_pre_configure\n"
+                      "env | grep -E '^TERMUX_(APP_PACKAGE|BASE_DIR|CACHE_DIR|PREFIX|ANDROID_HOME)=' | sort\n")
+            env = {"PATH": "/usr/bin:/bin", "TERMUX_PKG_SRCDIR": root,
+                   "TERMUX_APP__PACKAGE_NAME": "com.commandroid_line", "TERMUX_APP__NAMESPACE": "com.termux",
+                   "TERMUX__ROOTFS": "/data/data/com.commandroid_line/files",
+                   "TERMUX__CACHE_DIR": "/data/data/com.commandroid_line/cache",
+                   "TERMUX__PREFIX": "/data/data/com.commandroid_line/files/usr",
+                   "TERMUX__HOME": "/data/data/com.commandroid_line/files/home"}
+            # build-package.sh runs every step under errexit and pipefail.
+            done = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], text=True, capture_output=True, env=env)
+            sources = {path.name: path.read_text() for path in scripts.iterdir()}
+            return done, sources
+
+    def test_exports_identity_for_configure(self):
+        done, _ = self.run_step(4)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(done.stdout.splitlines(), [
+            "TERMUX_ANDROID_HOME=/data/data/com.commandroid_line/files/home",
+            "TERMUX_APP_PACKAGE=com.commandroid_line",
+            "TERMUX_BASE_DIR=/data/data/com.commandroid_line/files",
+            "TERMUX_CACHE_DIR=/data/data/com.commandroid_line/cache",
+            "TERMUX_PREFIX=/data/data/com.commandroid_line/files/usr",
+        ])
+
+    def test_components_keep_java_namespace_and_actions_keep_application_id(self):
+        done, sources = self.run_step(4)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(sources["tool0.in"], '-n "@TERMUX_APP_PACKAGE@/com.termux.app.TermuxService"\n'
+                                              'am "@TERMUX_APP_PACKAGE@.app.reload_style"\n')
+        self.assertEqual(sources["login.in"], "cat @TERMUX_PREFIX@/etc/motd\n")
+
+    def test_refuses_upstream_drift_in_component_count(self):
+        done, sources = self.run_step(3)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("expected 4 app component names", done.stdout)
+        self.assertIn("@TERMUX_APP_PACKAGE@/@TERMUX_APP_PACKAGE@.app.", sources["tool0.in"])
+
+    def test_refuses_source_without_component_names(self):
+        done, _ = self.run_step(0)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("expected 4 app component names in scripts/*.in, found 0", done.stdout)
+
+    def test_replaces_the_pinned_pre_configure_step(self):
+        upstream = "termux_step_pre_configure() {\n\tautoreconf -vfi\n}"
+        self.assertTrue(BOOTSTRAP.TERMUX_TOOLS_PRE_CONFIGURE.startswith("termux_step_pre_configure() {\n"))
+        self.assertTrue(BOOTSTRAP.TERMUX_TOOLS_PRE_CONFIGURE.endswith("\tautoreconf -vfi\n}"))
+        self.assertNotEqual(BOOTSTRAP.TERMUX_TOOLS_PRE_CONFIGURE, upstream)
 
 
 if __name__ == "__main__":

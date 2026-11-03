@@ -109,9 +109,12 @@ class InteractiveReadinessTest {
             val payload = "\u001b[200~$body\u001b[201~"
             val count = payload.toByteArray(Charsets.UTF_8).size
             // The reader enables bracketed paste like an agent's TUI does, then reads raw bytes.
+            // It stays in the foreground (`read`) until its own 2004l has been checked: with a
+            // bootstrap, the session shell is bash, whose readline re-enables bracketed paste at
+            // every prompt (enable-bracketed-paste is on by default since bash 5.1).
             h.run(shell, "printf '\\033[?2004h'; $STTY_RAW; ${printValue("BPUP", nonce, RAW_STATE)}; " +
                 "bp=\$(dd bs=1 count=$count 2>/dev/null | $HEX_PIPE); stty sane; printf '\\033[?2004l'; " +
-                printValue("BP", nonce, "\"\$sttyStatus:\$bp\""))
+                printValue("BP", nonce, "\"\$sttyStatus:\$bp\"") + "; read -r bpdone")
             val raw = isRawTty(h.awaitValue(shell, "BPUP", nonce))
             waitUntil("Emulator did not enter bracketed paste mode") {
                 h.onMain { shell.emulator.isBracketedPasteModeEnabled }
@@ -130,6 +133,8 @@ class InteractiveReadinessTest {
             waitUntil("Reader did not leave bracketed paste mode") {
                 h.onMain { !shell.emulator.isBracketedPasteModeEnabled }
             }
+            h.write(shell, "\r")
+            h.awaitShellPrompt(shell, 10_000, "Reader did not exit after its final read")
         }
     }
 

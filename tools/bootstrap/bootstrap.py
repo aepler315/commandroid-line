@@ -61,6 +61,34 @@ SUBPACKAGE_PARENT_SNIPPET = """\tlocal package_name="$2"
 \tfi
 """
 RUNTIME_DIRS = ("bin/", "lib/", "libexec/", "etc/", "var/lib/dpkg/")
+# Exact upstream lines that name the official prefix only in a comment; nothing reads them.
+FOREIGN_PREFIX_COMMENTS = {
+    "bin/termux-exec-ld-preload-lib": (
+        b'    # Prevent `CANNOT LINK EXECUTABLE "cp": library "/data/data/com.termux/files/usr/lib/'
+        b'libtermux-exec-ld-preload.so" not found: needed by main executable`\n',),
+}
+# Replaces termux_step_pre_configure in packages/termux-tools/build.sh (see prepared_file).
+# termux-tools' configure.ac takes the app paths from these environment variables, which
+# termux-packages never exports, and otherwise substitutes /data/data/com.termux paths
+# into login, pkg, chsh, motd.sh and the other scripts. Its app component names use the
+# application ID as the class namespace too, but the app's classes stay in com.termux.
+TERMUX_TOOLS_PRE_CONFIGURE = """termux_step_pre_configure() {
+\t# commandroid-line: configure reads the app identity from the environment.
+\texport TERMUX_APP_PACKAGE="$TERMUX_APP__PACKAGE_NAME"
+\texport TERMUX_BASE_DIR="$TERMUX__ROOTFS"
+\texport TERMUX_CACHE_DIR="$TERMUX__CACHE_DIR"
+\texport TERMUX_PREFIX="$TERMUX__PREFIX"
+\texport TERMUX_ANDROID_HOME="$TERMUX__HOME"
+\t# Activity, service and receiver classes keep the com.termux Java namespace.
+\tlocal component='@TERMUX_APP_PACKAGE@/@TERMUX_APP_PACKAGE@\\.app\\.'
+\tlocal found
+\tfound="$(cat "$TERMUX_PKG_SRCDIR"/scripts/*.in | { grep -o "$component" || true; } | wc -l)"
+\tif [ "$found" != 4 ]; then
+\t\ttermux_error_exit "termux-tools: expected 4 app component names in scripts/*.in, found $found"
+\tfi
+\tsed -i "s%$component%@TERMUX_APP_PACKAGE@/$TERMUX_APP__NAMESPACE.app.%g" "$TERMUX_PKG_SRCDIR"/scripts/*.in
+\tautoreconf -vfi
+}"""
 
 
 def require(condition, message):
@@ -154,6 +182,8 @@ def prepared_file(source, relative, config):
 \tTERMUX_PKG_CONFFILES="$(grep -v '^etc/termux/mirrors/' "$TERMUX_PKG_BUILDDIR/conffiles" || true)"
 }'''
         original = replace_once(original, old, new)
+        original = replace_once(original, "termux_step_pre_configure() {\n\tautoreconf -vfi\n}",
+                                TERMUX_TOOLS_PRE_CONFIGURE)
     elif relative != "scripts/build-bootstraps.sh":
         repins = [repin for repin in config["checksum_repins"] if repin["file"] == relative]
         rewrites = [rewrite for rewrite in config["source_url_rewrites"] if rewrite["file"] == relative]
@@ -288,6 +318,23 @@ def foreign_prefix(data):
     return match.group(1).decode() if match else None
 
 
+def resolve_member(name, names, links, prefix):
+    """Follow SYMLINKS.txt entries from name to a regular archive member, or return None."""
+    for _ in range(16):
+        if name in names:
+            return name
+        if name not in links:
+            return None
+        target = links[name]
+        if target.startswith("/"):
+            if not target.startswith(prefix + "/"):
+                return None
+            name = target[len(prefix) + 1:]
+        else:
+            name = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+    return None
+
+
 def installed_packages(status):
     return {line[len("Package:"):].strip() for line in status.decode(errors="replace").splitlines()
             if line.startswith("Package:")}
@@ -296,6 +343,8 @@ def installed_packages(status):
 def verify_artifact(archive_path, arch, config, include_extra=True):
     require(archive_path.name == f"bootstrap-{arch}.zip", "Artifact filename must identify its architecture")
     prefix = config["prefix"].encode()
+    # The manifest's relative class names resolve against the com.termux namespace.
+    component_namespace = f'{config["package_name"]}/{config["package_name"]}.app.'.encode()
     extras = config["extra_packages"] if include_extra else []
     with zipfile.ZipFile(archive_path) as archive:
         names = archive.namelist()
@@ -330,8 +379,13 @@ def verify_artifact(archive_path, arch, config, include_extra=True):
                     f"Zip contains an unsupported native symlink: {member.filename}")
             data = archive.read(member)
             if member.filename.startswith(RUNTIME_DIRS):
-                found = foreign_prefix(data)
+                checked = data
+                for comment in FOREIGN_PREFIX_COMMENTS.get(member.filename, ()):
+                    checked = checked.replace(comment, b"")
+                found = foreign_prefix(checked)
                 require(found is None, f"Foreign private prefix {found} in {member.filename}")
+                require(component_namespace not in data,
+                        f"App component uses the application ID as its class namespace in {member.filename}")
             if data.startswith(b"\x7fELF"):
                 require(len(data) >= 20 and data[5] == 1, f"Invalid ELF header: {member.filename}")
                 require(struct.unpack_from("<H", data, 18)[0] == MACHINES[arch],
@@ -357,8 +411,10 @@ def verify_artifact(archive_path, arch, config, include_extra=True):
         for package in extras:
             require(package in installed, f"Requested extra package {package} is not installed in dpkg status")
             for executable in EXTRA_EXECUTABLES.get(package, ()):
-                require(executable in names, f"Extra package {package} lacks {executable}")
-                require(archive.read(executable).startswith(b"\x7fELF"),
+                # git installs bin/git as a symlink to libexec/git-core/git.
+                resolved = resolve_member(executable, names, links, config["prefix"])
+                require(resolved is not None, f"Extra package {package} lacks {executable}")
+                require(archive.read(resolved).startswith(b"\x7fELF"),
                         f"Expected a compiled ELF executable at {executable}")
     digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
     print(json.dumps({"artifact": str(archive_path), "sha256": digest, "architecture": arch,
